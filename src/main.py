@@ -1,25 +1,54 @@
 
-# src/main.py
-
 import typer
+import json
+from pathlib import Path
+
+from agents import AGENT_REGISTRY  # dynamiczny rejestr agentów
+from agents.base import AgentConfig
 
 app = typer.Typer(help="ftSystem – Multi-Agent AI CLI")
 
 @app.command()
-def run(agent_name: str):
+def run(
+    agent: str = typer.Option(..., "--agent", help="Agent class name (e.g. HelloAgent)"),
+    config: Path = typer.Option(None, "--config", help="Path to agent config file (JSON)")
+):
     """
-    Runs the specified agent.
+    Run selected agent with optional configuration.
     """
-    # TODO: later import and invoke the appropriate agent
-    typer.echo(f"Running agent: {agent_name}")
+    if agent not in AGENT_REGISTRY:
+        typer.echo(f"Agent '{agent}' not found. Available: {list(AGENT_REGISTRY.keys())}", err=True)
+        raise typer.Exit(code=1)
+
+    agent_cls = AGENT_REGISTRY[agent]
+
+    # Load config from JSON file or use defaults
+    if config is not None:
+        try:
+            with open(config, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+            # Validate config using Pydantic
+            agent_config = AgentConfig(**config_data)
+        except Exception as e:
+            typer.echo(f"Error loading config: {e}", err=True)
+            raise typer.Exit(code=1)
+    else:
+        # Use default config (minimal)
+        agent_config = AgentConfig(name=agent, description=f"Auto config for {agent}")
+
+    # Instantiate and run agent
+    agent_instance = agent_cls(agent_config)
+    result = agent_instance.run()
+    typer.echo(f"{agent}.run() result: {result}")
 
 @app.command("list-agents")
 def list_agents():
     """
     Displays the list of available agents.
     """
-    # TODO: later implement dynamic retrieval of the agents list
-    typer.echo("Available agents:\n - hello\n - ...")
+    typer.echo("Available agents:")
+    for name in AGENT_REGISTRY:
+        typer.echo(f" - {name}")
 
 if __name__ == "__main__":
     app()
