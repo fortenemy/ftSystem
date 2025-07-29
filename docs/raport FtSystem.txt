@@ -1,0 +1,250 @@
+FtSystem – Monit o zaprojektowanie interfejsu wiersza poleceń AI dla wielu agentów
+Przegląd
+FtSystem to aplikacja CLI typu open source (Python), która koordynuje pracę wielu agentów AI w czasie rzeczywistym. Użytkownik komunikuje się z FtSystem za pośrednictwem interfejsu użytkownika terminala, wydając polecenia w języku polskim (kontekst programistyczny jest polski), podczas gdy kod systemu i wewnętrzne komunikaty pozostają w języku angielskim dla zapewnienia precyzji. Centralny Agent Master koordynuje pracę pięciu wyspecjalizowanych agentów pomocniczych (Agenci 1–5) we wspólnej konwersacji w stylu „forum”. Agent Master rozkłada żądania użytkowników i deleguje zadania do agentów pomocniczych, którzy następnie komunikują się ze sobą, wymieniając wiadomości wspólnym kanałem. Udoskonalają wzajemnie swoje wyniki i poprawiają błędy, emulując burzę mózgów zespołu ekspertów. Wynik końcowy – który może być w formacie JSON, CSV, TXT lub innym, zależnie od potrzeb – jest kompilowany przez Agenta Master i zwracany użytkownikowi. Celem tego projektu jest wykorzystanie inteligencji zbiorowej (wielu agentów o różnych rolach) do efektywniejszego rozwiązywania złożonych zadań.
+medium.com
+ibm.com
+Co najważniejsze, system utrzymuje stan między sesjami: agent Master trwale przechowuje zwięzłe, profesjonalne podsumowania poprzednich sesji, aby zachować kontekst na potrzeby przyszłych zapytań. Głównym celem tego tematu jest pomoc LLM w projektowaniu architektury i kodu FtSystem – ze szczególnym uwzględnieniem modułowości, wydajności i integracji najnowocześniejszych frameworków – tak, aby polski programista mógł praktycznie wdrożyć to wieloagentowe narzędzie CLI.
+Architektura agenta
+FtSystem opiera się na architekturze wieloagentowej opartej na mediatorach. Główny agent (AGENT Master) działa jako koordynator (superwizor), natomiast agenci 1–5 to wyspecjalizowani podagenci o zdefiniowanych rolach lub kompetencjach. Każdy agent to jednostka oparta na LLM, posiadająca określoną domenę (na przykład jeden może być ekspertem ds. badań, inny asystentem ds. kodowania, jeszcze inny analitykiem danych itd., w zależności od potrzeb). Główny agent (Master) odbiera dane wejściowe od użytkownika i decyduje, których agentów wywołać do podzadań, skutecznie kierując zapytanie do odpowiednich ekspertów.
+reddit.com
+Wszyscy agenci korzystają ze wspólnego kontekstu komunikacyjnego – w zasadzie wielostronnego forum czatu, widocznego dla wszystkich. Mistrz może publikować zapytania użytkownika oraz plany lub konkretne zadania na tym forum. Każdy agent pomocniczy wnosi swój wkład, publikując swoje wnioski, przemyślenia lub rozwiązania na forum. Rozmawiają w języku naturalnym (polskim w przypadku treści widocznych dla użytkownika, ale potencjalnie angielskim wewnętrznie dla dokładności technicznej), więc odpowiedź jednego agenta staje się częścią komunikatu dla pozostałych.
+medium.com
+Umożliwia to dwustronny dialog: agenci mogą prosić się nawzajem o wyjaśnienia, rozwijać swoje odpowiedzi lub wskazywać błędy, co prowadzi do iteracyjnego udoskonalania. Taka konstrukcja opiera się na najnowszych paradygmatach multi-LLM, takich jak CAMEL i MetaGPT, gdzie początkowy monit definiuje odrębne role i cele agentów, a następnie agenci autonomicznie kontynuują dyskusję w kierunku rozwiązania.
+medium.com
+medium.com
+. Aby skoordynować rozmowę, Mistrz może wymusić zasadę kolejności lub ustrukturyzowany przepływ pracy. Na przykład, Mistrz mógłby najpierw poprosić wszystkich agentów o udzielenie wstępnej odpowiedzi z ich perspektywy, a następnie zezwolić na rundę krytyki i ulepszeń, w której agenci reagują na uwagi innych. Mistrz monitoruje dyskusję i interweniuje, jeśli zboczy ona z tematu lub wymaga konwergencji. Na koniec Mistrz syntetyzuje spostrzeżenia agentów w spójną odpowiedź. Poniższa tabela przedstawia przykładowy przepływ interakcji:
+Krok	Wzajemne oddziaływanie	Zaangażowani agenci
+1	Master : Odbiera prośbę użytkownika (w języku polskim) i formułuje plan. Publikuje problem i przydzielone podzadania na forum (np. „Agent1: zbierz odpowiednie dane; Agent2: przeanalizuj X;…”).	Mistrz (wtajemniczony)
+2	Agenci 1–5 : Każdy agent pracuje nad przydzielonym mu zadaniem (ewentualnie korzystając z narzędzi lub zewnętrznych interfejsów API) i publikuje swoje wyniki lub wnioski pośrednie na forum. Na przykład Agent1 może publikować wyniki badań, Agent2 może tworzyć szkic kodu lub logikę itd.	Agenci 1–5 (wkład równoległy)
+3	Agenci (dyskusja) : Agenci czytają nawzajem swoje wiadomości na forum. Angażują się w dyskusję – np. Agent3 zauważa niespójność w danych Agenta1 i ją poprawia; Agent4 poprawia kod dostarczony przez Agenta2; Agent5 sugeruje lepszy format danych wyjściowych. Powtarzają iterację, aż dojdą do rozwiązania.	Agenci 1–5 (pętla współpracy)
+4	Master : Master obserwuje dialog i po jego zakończeniu agreguje wyniki. Może poprosić agenta końcowego (lub siebie) o sformatowanie wyniku zgodnie z formatem żądanym przez użytkownika (JSON, CSV itp.) lub wykonać to formatowanie bezpośrednio.	Mistrz (synteza)
+5	Master -> Użytkownik : Master zwraca użytkownikowi ostateczną odpowiedź za pośrednictwem interfejsu wiersza poleceń (CLI). Następnie generuje zwięzłe podsumowanie sesji (zachowując kluczowe punkty i decyzje) i zapisuje je w historii sesji w celu zachowania w pamięci długoterminowej.	Master (wyjście)
+
+Ta architektura gwarantuje, że złożone zapytania są obsługiwane przez „zespół” specjalistów AI pracujących w tandemie, a nie przez pojedynczy monolityczny model. Dzięki zdefiniowaniu jasnych ról i mechanizmu koordynacji, system może rozbijać problemy i rozwiązywać je poprzez pracę zespołową agentów.
+ibm.com
+Wspólne forum (wspólny kontekst) jest kluczem do tej współpracy, pozwalając agentom pozostać na tej samej stronie. W implementacji może to być reprezentowane przez współdzielony bufor wiadomości lub pętlę zdarzeń rozsyłającą wiadomości do wszystkich agentów. Każdy obiekt agenta może mieć metodę podobną do tej, którą receive_message(message)wywołuje obiekt Master, aby zaktualizować go o nową zawartość forum, oraz act()metodę, w której agent decyduje, czy powinien się do niego dołączyć jako następny. Starannie zaprojektowane kryteria zatrzymania (np. liczba iteracji lub sygnał z obiektu Master) zapobiegnie nieskończonym pętlom w ich dyskusji. Obiekt Master pozostaje jedynym agentem, który komunikuje się z użytkownikiem, izolując go od chaotycznej dyskusji między wieloma agentami i zapewniając pojedynczą, autorytatywną odpowiedź.
+Struktura CLI
+Interfejs wiersza poleceń FtSystem zostanie zbudowany z wykorzystaniem Typer , nowoczesnego frameworka CLI, który ułatwia definiowanie poleceń i opcji przy minimalnej ilości szablonów. Interfejs CLI działa w dwóch trybach: (1) trybie konfiguracji do zarządzania agentami i sesjami oraz (2) trybie interakcji do obsługi zapytań użytkownika za pośrednictwem agenta głównego. Użytkownik może wywołać narzędzie w terminalu za pomocą różnych podpoleceń, aby skonfigurować i korzystać z systemu agentów. Na przykład, możliwe polecenia CLI mogą obejmować:
+ftsystem agent create "<name>" --role "<description>" --model "<LLM_model>"– utwórz nowego agenta z podanym opisem roli i przypisz mu domyślny model/zaplecze LLM.
+ftsystem agent list– wypisz wszystkich obecnych agentów (np. agentów 1–5) wraz z ich rolami i ustawieniami.
+ftsystem agent select <name>– (jeśli ma to zastosowanie) wybierz lub aktywuj konkretny profil agenta lub zestaw agentów (choć w tym projekcie wszyscy pięciu agentów pomocniczych jest zwykle aktywnych; można to wykorzystać do włączania/wyłączania określonych agentów).
+ftsystem run "<user_query>" [--format json]– wyślij jednorazowe zapytanie do agenta głównego i wyślij wynik w określonym formacie. Spowoduje to uruchomienie wewnętrznego procesu wieloagentowego.
+ftsystem interactive– weź udział w interaktywnej sesji czatu, w której użytkownik może rozmawiać z agentem Mistrzem w wielu turach (Mistrz będzie współpracował z pomocnikami za kulisami w każdej turze).
+ftsystem history show <session_id>– wyświetl zapisane podsumowanie poprzedniej sesji (aby przejrzeć działania agentów).
+ftsystem config set <option> <value>– dostosuj ustawienia konfiguracji (takie jak klucze API, domyślne ustawienia modelu itp.).
+Za pomocą Typera można je zaimplementować jako funkcje Pythona, oznaczone @app.command()dla każdego podpolecenia, co zapewnia przejrzystą strukturę interfejsu wiersza poleceń. Typer --format jsonautomatycznie zajmie się analizą argumentów (np. ) i wyświetli komunikaty pomocy. Na przykład, uproszczony fragment kodu może wyglądać tak:
+pyton
+Kopiuj
+Edytuj
+import typer
+app = typer.Typer()
+
+@app.command()
+def run(query: str, format: str = "text"):
+    """Send a query to FtSystem and get the answer."""
+    result = master_agent.handle_query(query, desired_format=format)
+    print(result)
+
+# ... (other commands like agent_create, agent_list, etc.)
+Gdy użytkownik uruchomi ftsystem run "Zaplanuj mi tygodniowy plan treningowy" --format json, CLI wywoła logikę agenta głównego, aby przetworzyć polski monit „Zaplanuj dla mnie tygodniowy harmonogram szkoleń” i zwrócić dane wyjściowe w formacie JSON. Pod maską master_agent.handle_querybędzie organizować przepływ pracy wielu agentów opisany wcześniej. Struktura CLI powinna zapewniać, że długotrwałe zadania (np. wielu agentów wykonujących wywołania API) pozostają responsywne; użycie Pythona asyncioi uruchomienie narady wielu agentów jako zadania asynchronicznego może pozwolić CLI na pokazanie spinnera lub zalogowanie kroków pośrednich. Na przykład Typer może zintegrować się z asynciopoprzez uruchomienie pętli zdarzeń (ponieważ Python nie obsługuje natywnie async defpoleceń, można użyć asyncio.run()wewnątrz polecenia do wykonania logiki asynchronicznej). W trybie interaktywnym CLI może stale monitować użytkownika o wprowadzenie danych i wywołanie master_agent.handle_queryw pętli, zachowując kontekst sesji, aż użytkownik wyjdzie. Ta struktura dobrze rozdziela kwestie: CLI (warstwa UI/UX) zbiera dane wejściowe użytkownika i wyświetla dane wyjściowe, podczas gdy podstawowa logika znajduje się w klasach systemu agenta.
+Narzędzia i frameworki
+Aby skutecznie wdrożyć FtSystem, wykorzystamy kilka potężnych bibliotek i frameworków Pythona:
+Typer – do budowania interfejsu CLI. Typer (zbudowany na Click) umożliwia deklaratywne definiowanie poleceń i argumentów za pomocą dekoratorów funkcji i wskazówek dotyczących typów, co daje przejrzyste i przyjazne dla użytkownika narzędzie wiersza poleceń. Automatycznie generuje --helptekst i waliduje dane wejściowe. Użycie Typera sprawi, że nasz kod CLI będzie zwięzły i czytelny, a jednocześnie zapewni profesjonalne UX (zgodne z narzędziami takimi jak gitlub pip).
+Asyncio – do współbieżnego wykonywania i komunikacji agentów w czasie rzeczywistym. Forum wieloagentowe obejmuje potencjalnie równoległe działania (np. Agent1 pobierający dane z internetu, Agent2 wykonujący obliczenia itp.). Pętla zdarzeń asyncio w Pythonie umożliwia współbieżne uruchamianie zadań bez blokowania całego programu. Możemy generować zadania każdego agenta jako asynchroniczną współprogram i używać asyncio.gatherich do równoległego działania, co może znacznie poprawić wydajność operacji związanych z wejściem/wyjściem (np. wywołania API do usług LLM). Jest to zgodne z wymogiem komunikacji w czasie rzeczywistym – agenci mogą efektywnie „rozmawiać” przez forum bez konieczności sekwencyjnego oczekiwania. Musimy zapewnić bezpieczeństwo wątków lub bezpieczeństwo asynchroniczne dla zasobów współdzielonych (takich jak lista wiadomości forum), ewentualnie poprzez użycie blokad asyncio lub zaprojektowanie synchronicznej wymiany wiadomości w oparciu o rundy.
+LangChain – do orkiestracji LLM, zarządzania komunikatami i potencjalnie integracji narzędzi. LangChain zapewnia abstrakcje do wywoływania różnych LLM (OpenAI, Anthropic itp.) za pomocą ujednoliconego interfejsu i zawiera konstrukcje dotyczące zachowania agentów, pamięci i korzystania z narzędzi. Na przykład, frameworki agentów LangChain (takie jak ReAct lub Tool-using Agents) można dostosować do naszej konfiguracji wieloagentowej, lub możemy użyć LangChain po prostu do zarządzania historią konwersacji i modelami wywołań z ponawianiem prób itp. Oferuje również komponenty pamięci , które mogą pomóc w przechowywaniu i pobieraniu konwersacji. Biorąc pod uwagę nasz scenariusz wieloagentowy, możemy użyć ConversationChain LangChain lub nowszego LangGraph do zarządzania interakcjami, chociaż dla prawdziwie jednoczesnych agentów wymagana będzie pewna niestandardowa logika. Korzystanie z LangChain może przyspieszyć rozwój, obsługując wiele szablonów (wywołania API LLM, komunikaty formatowania itp.) i jest zalecane do integracji LLM.
+reddit.com
+Powinniśmy zbadać funkcje takie jak ConversationSummaryMemory (która automatycznie podsumowuje dialog, aby zachować krótki kontekst) i klasy AgentExecutor do wykorzystania narzędzi, dostosowując je do wielu agentów.
+Pydantic – do modelowania i walidacji danych. Możemy definiować BaseModelklasy Pydantic dla różnych wewnętrznych struktur danych: konfiguracji agentów, wiadomości na forum i formatu podsumowania sesji. Używając Pydantic, uzyskujemy automatyczną walidację (np. upewnienie się, że wiadomość ma nadawcę, treść i znacznik czasu) oraz łatwą serializację do formatu JSON/YAML. Na przykład Messagemodel może zawierać pola: agent_name: str, role: Literal["user","assistant","system"], content: str, timestamp: datetime. Pydantic może pomóc w parsowaniu i egzekwowaniu typów podczas odczytu/zapisu plików historii lub wymiany informacji między agentami. Jest również przydatny do walidacji wyników końcowych – np. jeśli użytkownik zażąda danych wyjściowych w formacie JSON, możemy zdefiniować model Pydantic dla tego schematu wyjściowego i zlecić walidację lub korektę wyniku agenta głównego względem niego. Takie podejście poprawia solidność i przejrzystość bazy kodu.
+Oprócz nich przydatne byłyby biblioteki standardowe, takie jak logging(do śledzenia działań agentów) i być może Rich (do kolorowania wyników konsoli dla każdego agenta, co poprawia czytelność). Wybrane frameworki kładą nacisk na modułowość (polecenia Typer, modele Pydantic) i współbieżność (asyncio, obsługa asynchroniczności w LangChain), co jest zgodne z naszym celem, jakim jest skalowalny system czasu rzeczywistego.
+Zarządzanie pamięcią
+Pamięć trwała jest kluczowa dla FtSystem, ponieważ każdy agent powinien „pamiętać” ważny kontekst z poprzednich sesji. Strategia polega na utrzymaniu zarówno pamięci krótkotrwałej, jak i długotrwałej:
+Pamięć krótkotrwała (w ramach sesji): Jest to zasadniczo kontekst konwersacji, który jest aktywnie przechowywany w monicie dla agentów podczas sesji na żywo. Zawiera zapytanie użytkownika i podsumowanie odpowiedniego, niedawnego dialogu na forum. Ponieważ rozmawia wielu agentów, kontekst może szybko rosnąć, dlatego Mistrz powinien go podsumowywać lub skracać w miarę postępu konwersacji (na przykład, prowadząc bieżące podsumowanie dyskusji do tej pory, a nie każdą pojedynczą wiadomość, aby uniknąć przekroczenia limitu tokenów). Pamięć podręczna LangChain ConversationBuffermoże ConversationSummaryMemoryzostać dostosowana tak, aby Mistrz przekazywał każdemu agentowi zwięzły kontekst tego, co się wydarzyło.
+Pamięć długotrwała (pomiędzy sesjami): Po każdej sesji agent główny generuje plik historii sesji zawierający zwięzłe, ale bogate w informacje podsumowanie interakcji. To podsumowanie ma na celu zachowanie istotnego kontekstu (odkrytych faktów, podjętych decyzji, preferencji użytkownika itp.) w trwałej formie, którą można ponownie wczytać w przyszłych sesjach. Format tego pliku pamięci powinien równoważyć czytelność dla człowieka z parsowalnością maszynową. Możliwe formaty to wiersze JSON (JSONL), YAML, Markdown lub hybryda. Ze względu na wydajność i ustrukturyzowany dostęp, JSONL jest dobrym wyborem: każdy wiersz może być obiektem JSON reprezentującym turę lub fragment podsumowania, łatwym do dołączenia i załadowania. Alternatywnie, plik Markdown z nagłówkami sekcji (dla każdej sesji i agenta) może być bardziej czytelny dla programistów go analizujących, choć jego parsowanie może być trudniejsze. Możemy nawet połączyć podejścia, np. plik Markdown zawierający osadzone fragmenty kodu JSON. Kluczem jest to, że odzyskiwanie wiedzy z przeszłości powinno być szybsze niż jej ponowne obliczanie; system może załadować najnowsze podsumowanie i udostępnić je agentowi głównemu jako kontekst na początku nowej sesji (lub na żądanie, jeśli jest to stosowne).
+Na przykład, po sesji, Master może zapisać plik JSONL, w history_2025-07-27.jsonlktórym każdy wiersz ma { "session": 42, "summary": "In this session, user asked about X, agents concluded Y after debating Z.", "key_facts": [...], "outcome": "final answer summary" }. Podczas następnego uruchomienia, Master może szybko przeszukać te podsumowania pod kątem odpowiednich słów kluczowych lub po prostu załadować ostatnie podsumowanie, aby przypomnieć sobie ostatni kontekst. To podejście jest inspirowane technikami stosowanymi w sztucznej inteligencji konwersacyjnej, w których krótkoterminowe interakcje są podsumowywane w celu długoterminowego przechowywania.
+reddit.com
+Przechowywanie konwersacji w bazie danych lub pliku z pamięcią krótkotrwałą i długotrwałą zapewnia systemowi możliwość obsługi niuansowanych pytań uzupełniających (np. jeśli w poprzedniej sesji użytkownik zdefiniował „Projekt Alfa”, a następnym razem zapyta „Czy osiągnęliśmy cele Projektu Alfa?”, system może sobie przypomnieć, czym jest Projekt Alfa). Podsumowując, redukujemy szum i przekazujemy tylko ważne informacje, minimalizując ograniczenia okna kontekstowego. W implementacji moglibyśmy mieć MemoryManagerkomponent. Mógłby on wykorzystywać modele Pydantic, takie jak:
+pyton
+Kopiuj
+Edytuj
+class SessionSummary(BaseModel):
+    session_id: str
+    date: str
+    user_query: str
+    agent_findings: List[str]  # major points from agents
+    conclusion: str  # final answer given
+MemoryManager miałby metody takie jak i . Moglibyśmy również zintegrować bazy danych wektorowych (np . FAISS lub Pinecone) do przechowywania osadzeń przeszłej wiedzy w celu przywołania semantycznego, ale na początek proste pliki tekstu strukturalnego mogą wystarczyć. Podsumowania sesji powinny być napisane w profesjonalnym, technicznym stylu (ponieważ użytkownik jest programistą, doceni zwięzłe, rzeczowe podsumowanie zamiast rozwlekłej prozy). Jeśli istnieje wiele sesji, Master może załadować kilka ostatnich lub tych oznaczonych jako istotne. Upewnienie się, że pliki pamięci są łatwe do odróżnienia (w celu kontroli wersji, biorąc pod uwagę, że jest to oprogramowanie typu open source) jest również korzystne — np. JSONL lub Markdown w repozytorium git może pokazać, jak ewoluuje wiedza. Podsumowując, agent Master będzie działał jako historyk , tworząc i konsultując te podsumowania, aby zapewnić ciągłość systemu wieloagentowego w czasie.save_summary(SessionSummary)load_recent_summaries(n)
+Szybkie zasady inżynierii
+Aby w pełni wykorzystać potencjał LLM i uniknąć nieporozumień w środowisku wieloagentowym, musimy starannie opracować monity i reguły konwersacji dla każdego agenta. Monit przekazywany LLM (ten właśnie dokument) powinien zawierać instrukcje zapewniające ustrukturyzowaną, opartą na rolach interakcję i wysoką jakość wyników. Kluczowe zagadnienia inżynieryjne dotyczące monitowania obejmują:
+Definicje ról: Na początku sesji (lub podczas inicjalizacji systemu) przedstaw każdemu agentowi jasną „osobowość” i cel w monicie systemowym. Na przykład: „Jesteś Agentem 1, sztuczną inteligencją specjalizującą się w badaniach internetowych. Twoim zadaniem jest wyszukiwanie odpowiednich danych i udostępnianie ich zespołowi”. Podobnie: „Jesteś Agentem 2, ekspertem w kodowaniu w Pythonie, który pisze i ocenia kod”. I tak dalej dla Agentów 3–5 (być może analityka danych, korektora/krytyka oraz koordynatora lub formatera). Monit systemowy agenta głównego określałby jego rolę koordynatora: „Jesteś agentem głównym, odpowiedzialnym za delegowanie zadań innym i syntezę ich odpowiedzi”. To podejście do inicjacji monitów wywodzi się z frameworków takich jak CAMEL, gdzie tożsamość i zadanie każdego agenta są wyraźnie zdefiniowane z góry.
+medium.com
+Określa oczekiwania i zapobiega nakładaniu się ról. Każdy agent powinien również znać imiona i nazwiska pozostałych agentów oraz móc swobodnie komunikować się na forum.
+Protokół współpracy: Ustal zasady interakcji agentów. Na przykład: „Agenci powinni publikować swoje wnioski lub przemyślenia pojedynczo i czekać na wkład innych; nie dominuj w rozmowie. Udzielając informacji, bądź rzeczowy i podawaj źródła lub argumenty. Jeśli zauważysz potencjalny błąd w wypowiedzi innego agenta, uprzejmie go zwróć i popraw. Trzymaj się tematu prośby użytkownika. Używaj angielskiej terminologii technicznej, gdy jest to właściwe, ale ostateczna odpowiedź dla użytkownika musi być udzielona w żądanym formacie/języku (polskim, JSON itp.)”. Możemy zakodować początkową wiadomość, taką jak „karta zespołu”, którą Mistrz publikuje na forum na początku sesji, wymieniając te podstawowe zasady. Pomaga to w koordynacji agentów i można to wzmocnić, włączając takie zasady również do ich komunikatów systemowych (aby zawsze je uwzględniali). W metodologii MetaGPT Standardowe Procedury Operacyjne (SOP) są kodowane w komunikatach, aby uporządkować przepływy pracy z wieloma agentami.
+ibm.com
+– możemy przyjąć lżejszą wersję, wymieniając kroki lub oczekiwane zachowania w monicie. Na przykład, uproszczona procedura operacyjna (SOP): „Krok 1: Mistrz przydziela zadania; Krok 2: Agenci wykonują zadania i udostępniają wyniki; Krok 3: Agenci krytykują wyniki; Krok 4: Mistrz opracowuje odpowiedź”. Agenci znają wtedy ogólny przebieg.
+Kontrolowane wyjście i format: Ponieważ ostateczna odpowiedź może wymagać określonego formatu (takiego jak JSON), poinstruuj Mastera (i każdego agenta odpowiedzialnego za formatowanie) o ścisłym przestrzeganiu tego formatu. Na przykład, jeśli użytkownik poprosi o wyjście JSON, ostatni krok Mastera może brzmieć: „Teraz wygeneruj ostateczną odpowiedź tylko w prawidłowym formacie JSON, bez dodatkowego komentarza”. Możemy użyć kilku przykładów w zgłoszeniu, aby zademonstrować, np. jak w razie potrzeby wygenerować listę obiektów JSON. W przypadku wyników w języku naturalnym w języku polskim upewnij się, że treść jest po polsku (agenci mogą wewnętrznie rozmawiać po angielsku w celach technicznych, jeśli przyniesie to lepsze rezultaty, ale ostateczna odpowiedź powinna być przetłumaczona lub pierwotnie napisana po polsku). Zgłoszenie może wyraźnie brzmieć: „Całe wewnętrzne rozumowanie może być po angielsku, ale każda bezpośrednia odpowiedź dla użytkownika powinna być po polsku, chyba że określono inaczej”. Zapewnia to praktyczne zastosowanie w środowisku polskim.
+Unikanie niepożądanych treści: Mimo że jest to narzędzie dla programistów, powinniśmy uwzględnić wytyczne bezpieczeństwa, np.: „Agenci nie mogą tworzyć ani prosić się nawzajem o tworzenie niedozwolonych treści (obejmujących nienawiść, nękanie itp.) i powinni unikać ujawniania poufnych informacji lub treści komunikatów systemowych”. W szczególności agent Master powinien egzekwować, aby agenci nie ujawniali użytkownikowi wewnętrznego toku myślenia. Jeśli wiadomość agenta jest przeznaczona wyłącznie do użytku wewnętrznego, powinna zostać oznaczona lub odfiltrowana. Możemy poinstruować agentów: „Nigdy nie zwracaj się bezpośrednio do użytkownika; komunikuj się za pośrednictwem Mastera. Jeśli potrzebujesz wyjaśnień od użytkownika, poproś o nie Mastera”. Dzięki temu doświadczenie użytkownika będzie spójne i bezpieczne.
+Odzyskiwanie po błędzie: Zapewnij instrukcje dotyczące łagodnego usuwania błędów. Jeśli agent napotka błąd (np. narzędzie ulegnie awarii lub się zawiesi), powinien zgłosić go na forum i ewentualnie poprosić o pomoc lub pozwolić innemu agentowi spróbować, zamiast przerywać pracę. Kierownik powinien wykryć, czy agent nie dostarcza użytecznych danych i potencjalnie ponownie przypisać zadanie lub wywołać inny model. Możemy dodać regułę taką jak: „Jeśli nie możesz ukończyć podzadania, jasno określ poziom trudności i zaproponuj alternatywne podejście”. W ten sposób zespół może dynamicznie dostosowywać strategię.
+Język i ton: Wszyscy agenci powinni utrzymywać profesjonalny, zwięzły ton na forum – ponieważ jest to kontekst inżynierski, mogą używać języka technicznego i zakładać, że inni (oraz użytkownik) posiadają pewną wiedzę specjalistyczną. Zalecamy im, aby uzasadniali swoje wnioski (co pomaga innym w weryfikacji ich pracy), ale również, aby byli zwięźli, oszczędzając miejsce na tokeny. Zachęcamy również do krytycznego myślenia: „Agenci nie powinni bezkrytycznie ufać swoim wynikom – weryfikuj i weryfikuj informacje, gdy to możliwe”. Ta zasada doprowadzi do bardziej wiarygodnych rezultatów końcowych, ponieważ agenci będą się wzajemnie poprawiać (co jest istotą podejścia „debaty na forum”).
+Te szybkie reguły inżynieryjne i początkowa konfiguracja gwarantują, że po rozpoczęciu rozmowy z LLM-ami będzie ona przebiegać w sposób zorganizowany. Właśnie ten monit, który piszemy, zostanie przekazany dużemu modelowi języka, aby pokierował generowanym kodem i projektem. Dlatego powinien on jasno odzwierciedlać powyższe punkty. Podsumowując, definiując role, reguły i protokół interakcji w monicie , dostosowujemy dane wyjściowe LLM do pożądanego zachowania systemu wieloagentowego.
+medium.com
+W rezultacie LLM (podobnie jak GPT-4 itd.) wygeneruje kod i plany, które naturalnie uwzględniają te zasady (np. tworzenie klas dla agentów z opisami ról, implementacja logiki tury itd.).
+Integracja API
+Konstrukcja FtSystem pozwala każdemu agentowi korzystać z innego zaplecza LLM lub narzędzia za pośrednictwem API – ta elastyczność jest kluczowa dla wykorzystania zalet różnych modeli (OpenAI GPT-4, Anthropic Claude, Google Gemini itp.). Aby zaimplementować dynamiczny wybór modelu, system będzie zawierał warstwę integracji API, abstrahującą różnice między dostawcami. Konkretnie, moglibyśmy mieć konfigurację (w pliku konfiguracyjnym JSON/YAML lub zmiennych środowiskowych), która mapuje każdego agenta na określony model lub usługę. Na przykład: {agent1: "openai:gpt-4", agent2: "anthropic:claude-v2", agent3: "google:gemini", agent4: "openai:gpt-4-32k", agent5: "local:LLama2"}. Funkcja Master lub fabryczna może odczytać tę konfigurację i odpowiednio zainicjować klientów API. LangChain może to uprościć, ponieważ oferuje wrappery dla wielu API LLM – moglibyśmy użyć OpenAI()dla GPT-4, Anthropic()dla Claude itp., wszystkie zgodne ze wspólnym .predict()interfejsem .generate(). Jeśli nie korzystamy z LangChain, wykorzystamy oficjalne zestawy SDK: np. openaibibliotekę Pythona OpenAI, klienta Anthropics anthropicitp. Powinniśmy zaprojektować klasę AgentModel lub podobną do hermetyzacji wywołań API, aby agent mógł działać response = self.model_client.query(prompt)bez martwienia się o to, z którego API korzysta. Pozwala to również na łatwe przełączanie modeli lub dostawców – na przykład, jeśli jedno API ulegnie awarii lub osiągnie limit przepustowości, model Master może dynamicznie przełączyć się na inny model. Współbieżność jest tu ponownie istotna: równoległe wywoływanie wielu zewnętrznych interfejsów API może przyspieszyć odpowiedzi (wykorzystując biblioteki asyncio i Python HTTP, takie jak httpx, które obsługują asynchroniczność). Należy jednak wziąć pod uwagę ograniczenia wydajności i koszty API – rzeczywista implementacja może nie zawsze odpytywać wszystkich pięciu agentów jednocześnie dla każdego pytania użytkownika, zwłaszcza w przypadku korzystania z kosztownych modeli. Logika Mastera może być adaptacyjna: może angażować tylko tych agentów, których uzna za niezbędnych. Na przykład, proste zapytanie, które nie wymaga kodowania, może w ogóle nie wywołać agenta kodującego. Decyzja ta może być oparta na regułach lub nawet wyuczona. Początkowo jednak proste mapowanie typu zapytania użytkownika na agenta może wystarczyć (na przykład, jeśli zapytanie zawiera „kod” lub „implement”, wywołaj agenta kodującego). Zintegrujemy również korzystanie z narzędzi za pośrednictwem interfejsów API. Niektórzy agenci mogą działać mniej jako czyste LLM, a bardziej jako wywołujący narzędzia. Na przykład agent mógłby używać API do pobierania informacji (takich jak API wyszukiwania w sieci, zapytanie do bazy danych itp.) zamiast polegać wyłącznie na wiedzy swojego modelu. Można to osiągnąć, implementując niektórych agentów jako wrappery wywołujące narzędzia: np. Agent1 mógłby używać API wyszukiwania (SerpAPI lub innego), a następnie przekazywać wyniki do GPT-4 w celu analizy. Można by tutaj wykorzystać system narzędzi LangChain lub funkcję wywoływania funkcji OpenAI: monit agenta mógłby zostać zaprojektowany tak, aby wyprowadzał wywołanie funkcji (takie jak search("query")), które nasz system przechwytuje i wykonuje, a następnie agent kontynuuje z wynikiem. Jest to zaawansowany wzorzec; prostszą drogą jest jawne zakodowanie agenta tak, aby używał Pythona requestslub wyspecjalizowanych zestawów SDK w razie potrzeby (np. agent z dostępem do API pogodowego, jeśli zadanie tego wymaga). Aby bezpiecznie zarządzać danymi uwierzytelniającymi API, nie będziemy kodować kluczy na stałe. Zamiast tego używamy zmiennych środowiskowych lub pliku konfiguracyjnego (Typer może pomóc użytkownikowi w ich skonfigurowaniu za pomocą ftsystem config). Na przykład możemy wymagać OPENAI_API_KEY, ANTHROPIC_API_KEY, itd. w środowisku. System może sprawdzić podczas uruchamiania, czy niezbędne klucze dla wybranych agentów są obecne i zgłosić wyraźny błąd, jeśli ich nie ma. Odzwierciedla to liczbę narzędzi obsługujących sekrety. Testowanie integracji z wieloma modelami jest ważne – każdy model LLM ma swoje dziwactwa (polecenia mogą wymagać drobnych modyfikacji dla każdego modelu). Polecenie powinno zachęcać do budowania modułowej warstwy API , w której dodanie nowego modelu jest tak proste, jak napisanie małej klasy adaptera. Na przykład BaseLLMClientklasy z podklasami OpenAIClient, ClaudeClient, itd., z których każda implementuje generate(text)->strmetodę. W ten sposób Master i agenci nie przejmują się backendem. Bierzemy również pod uwagę modele lokalne (być może za pośrednictwem interfejsu Hugging Face Transformers), aby umożliwić korzystanie z nich w trybie offline lub z własnego hostingu. Wreszcie, ponieważ FtSystem może w przyszłości zintegrować się z systemem operacyjnym użytkownika (np. instalując pakiety lub uruchamiając kod na żądanie użytkownika), same te działania można postrzegać jako integracje „API” – np. za pomocą subprocessmodułu Pythona dla powłoki lub API menedżera pakietów. Projekt powinien uwzględniać te zachowania jako wtyczki, które agent (lub Master) może wywołać po autoryzacji. Starannie planując integrację API, zapewniamy FtSystem możliwość korzystania z nowych LLM lub narzędzi w miarę ich pojawiania się, po prostu aktualizując konfiguracje lub dodając nowe klasy agentów.
+Przykładowy szkielet kodu
+Poniżej znajduje się uproszczony szkielet kodu FtSystem, ilustrujący główne komponenty i ich interakcje. Kod jest opatrzony komentarzami objaśniającymi każdą część i wskazującymi obszary do przyszłego debugowania lub skalowania. To nie jest pełna implementacja, a jedynie wstępny plan działania:
+pyton
+Kopiuj
+Edytuj
+# agents.py
+from typing import List, Any
+import asyncio
+import openai  # or anthropic, etc., depending on the agent
+
+class Agent:
+    """Base class for an AI agent in the FtSystem."""
+    def __init__(self, name: str, role: str, model_client: Any):
+        self.name = name            # e.g., "Agent1"
+        self.role_description = role  # e.g., "Web Researcher Agent"
+        self.model = model_client   # an LLM API client or wrapper
+        self.memory: List[str] = [] # local memory of messages relevant to this agent
+    
+    async def process(self, task: str, forum: List[str]) -> str:
+        """
+        Handle a task assigned by the Master. `task` is a prompt or instruction.
+        `forum` is the shared conversation so far (if needed for context).
+        Returns the agent's message (as a string) to post on the forum.
+        """
+        # Combine role, task, and context into a prompt for the LLM
+        prompt = f"{self.role_description}\nYou are tasked: {task}\nForum discussion so far:\n"
+        prompt += "\n".join(forum[-5:])  # include last 5 messages from forum for context
+        prompt += f"\nYour answer:"
+        # Send to model (e.g., OpenAI API) - this is a placeholder call:
+        response = await self.model.generate(prompt)  
+        # ^ model.generate would be an async method calling the actual API (OpenAI, etc.)
+        answer = response.strip()
+        # Save to agent's memory (could also update a global memory)
+        self.memory.append(answer)
+        return f"{self.name}: {answer}"
+
+class MasterAgent:
+    """Master agent that coordinates the helper agents."""
+    def __init__(self, agents: List[Agent]):
+        self.agents = agents
+        self.forum: List[str] = []  # collects all messages exchanged
+    
+    async def handle_query(self, user_query: str, format: str = "text") -> str:
+        # Initial system message or plan (Master decides what to do)
+        self.forum.append(f"Master: User asked: {user_query}")
+        # Simple strategy: assign the same query to all agents (could be refined per role)
+        tasks = [agent.process(user_query, self.forum) for agent in self.agents]
+        # Run all agents concurrently
+        agent_replies = await asyncio.gather(*tasks)  # each agent returns its forum message
+        # Post all replies to forum
+        for reply in agent_replies:
+            self.forum.append(reply)
+        # Potentially, allow a round of discussion among agents (omitted for brevity)
+        # Finally, Master compiles the answer:
+        final_answer = await self._synthesize_answer(format)
+        # Save session summary to file for long-term memory
+        self._save_session_summary(user_query, final_answer)
+        return final_answer
+    
+    async def _synthesize_answer(self, format: str) -> str:
+        """Compile a final answer from forum messages, possibly using an LLM."""
+        # Here we simply gather all agent outputs. In practice, we could prompt another LLM
+        # or one of the agents (e.g., Agent5 as a 'Synthesizer') to create the final answer.
+        all_outputs = "\n".join([msg for msg in self.forum if msg.startswith("Agent")])
+        if format.lower() == "json":
+            # If JSON requested, wrap outputs in JSON format (simplified example)
+            import json
+            data = {"responses": {f"agent{i+1}": msg.split(":",1)[1].strip() 
+                                   for i, msg in enumerate(all_outputs.splitlines())}}
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        else:
+            # Plain text format: just return aggregated outputs
+            return f"Odpowiedź:\n{all_outputs}"
+    
+    def _save_session_summary(self, user_query: str, answer: str):
+        """Summarize the session and save to a history file (e.g., JSONL or Markdown)."""
+        summary = {
+            "user_query": user_query,
+            "agents": [agent.name for agent in self.agents],
+            "conversation": self.forum,
+            "final_answer": answer
+        }
+        # For brevity, write summary as JSON (could append to a .jsonl file)
+        import json
+        with open("ftsystem_history.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(summary, ensure_ascii=False) + "\n")
+        # In a real scenario, we would store only a condensed summary, not full conversation.
+
+# model_clients.py (wrappers for different LLM APIs)
+class OpenAIClient:
+    def __init__(self, model_name: str, api_key: str):
+        openai.api_key = api_key
+        self.model_name = model_name
+    async def generate(self, prompt: str) -> str:
+        # Async call to OpenAI chat completion (note: openai lib may not be async, 
+        # so consider using `await asyncio.to_thread(...)` to avoid blocking)
+        resp = await asyncio.to_thread(openai.ChatCompletion.create,
+                                       model=self.model_name,
+                                       messages=[{"role": "user", "content": prompt}])
+        return resp['choices'][0]['message']['content']
+
+# Similar clients could be made for Claude, Gemini, etc., each with a .generate() method.
+
+# main.py (CLI using Typer)
+import typer
+app = typer.Typer()
+master_agent: MasterAgent = None  # will be initialized in init_config
+
+@app.command()
+def init_config(openai_key: str = typer.Option(..., prompt=True, hide_input=True)):
+    """Initial configuration: setup API keys and agents."""
+    global master_agent
+    # Initialize model clients for each agent (example: 5 GPT-4 agents here)
+    model_client = OpenAIClient(model_name="gpt-4", api_key=openai_key)
+    agents = []
+    roles = ["Researcher", "Coder", "Analyst", "Critic", "Summarizer"]
+    for i, role in enumerate(roles, start=1):
+        agents.append(Agent(name=f"Agent{i}", role=f"You are an expert {role}.", model_client=model_client))
+    master_agent = MasterAgent(agents=agents)
+    typer.echo("Agents initialized and Master is ready.")
+
+@app.command()
+def query(q: str, format: str = "text"):
+    """Ask a question to the Master agent (with optional output format)."""
+    if master_agent is None:
+        typer.echo("Error: System not initialized. Run 'ftsystem init-config' first.")
+        raise typer.Exit(code=1)
+    # Run the master_agent to handle the query
+    answer = asyncio.run(master_agent.handle_query(q, format=format))
+    typer.echo(answer)
+
+# Additional CLI commands (agent management, history, etc.) would be defined similarly.
+Uwagi dotyczące szkieletu: Ten kod zapewnia strukturę wysokiego poziomu. Definiujemy Agentklasę i MasterAgentorkiestratora. Każda Agent.processmetoda buduje monit zawierający rolę agenta i najnowszy kontekst forum, a następnie wywołuje go model_clientw celu uzyskania odpowiedzi (faktyczne wywołanie LLM, które w tym pseudokodzie jest reprezentowane przez generatefunkcję asynchroniczną). MasterAgent handle_querykoordynuje pracę agentów, uruchamiając wszystkie ich zadania jednocześnie i zbierając ich odpowiedzi. Następnie _synthesize_answerpo prostu łączy lub formatuje dane wyjściowe, ale w bardziej dopracowanej implementacji mogłoby to wywołać inny LLM (lub wyznaczonego agenta) w celu przeprowadzenia prawidłowej syntezy wszystkich wpisów. Pokazujemy również, jak zapisać podsumowanie sesji do pliku ( ftsystem_history.jsonl) – w praktyce przechowywalibyśmy tylko skrócone podsumowanie zamiast całości. Część CLI demonstruje użycie Typera do tworzenia poleceń inicjalizujących system i wysyłających do niego zapytania; w rzeczywistej aplikacji dodawalibyśmy w razie potrzeby kolejne polecenia (takie jak przeglądanie historii, dodawanie agenta itp.). Zamieściliśmy również przykład, jak OpenAIClientmógłby wyglądać plik – enkapsulacja wywołania API. Podczas debugowania i skalowania, takie rozdzielenie obszarów (agentów, klientów modeli i interfejsu wiersza poleceń) jest pomocne: na przykład, jeśli jedno z API modelu działa wolno lub ulega awarii, można je zamienić, edytując kod model_clients.pybez ingerencji w logikę agenta. Kod zawiera komentarze, które ułatwiają dalszy rozwój (np. używanie asyncio.to_threaddo wywoływania API synchronizacji bez blokowania, udoskonalanie okna kontekstowego forum itp.). Ta modułowa konstrukcja ułatwi wdrażanie i testowanie przyszłych udoskonaleń (takich jak dodanie nowej specjalizacji agenta lub zmiana zaplecza pamięci).
+Sugerowane MCP i rozszerzenia kursora
+Aby rozszerzyć możliwości FtSystem w środowisku IDE Cursor (lub dowolnym IDE z integracją AI), powinniśmy wykorzystać serwery MCP (Model Context Protocol) i inne rozszerzenia , które zapewniają agentom dodatkowe narzędzia. Oto kilka rekomendowanych integracji i ich korzyści dla naszego systemu wieloagentowego:
+Wykonywanie kodu (interpreter kodu) : Włączenie interpretera kodu pozwala agentowi na wykonywanie kodu Pythona w środowisku sandboxowym i zwracanie wyników. Jest to niezwykle przydatne dla agentów zajmujących się obliczeniami, analizą danych lub weryfikacją kodu. Na przykład, agent kodujący może napisać fragment kodu i uruchomić go, aby sprawdzić jego poprawność. W ekosystemie Cursor, interpreter kodu Together AI (TCI) może służyć jako serwer MCP, co ułatwia podłączenie do Cursor lub podobnych środowisk IDE.
+dokumenty.together.ai
+Dzięki tej konfiguracji nasi agenci mogą bezproblemowo wykonywać takie czynności, jak generowanie wykresów, wykonywanie operacji wejścia/wyjścia na plikach na danych testowych czy wykonywanie algorytmów – wszystko w bezpiecznych warunkach. To przekształca abstrakcyjne rozumowanie LLM w konkretne, weryfikowalne działania. W praktyce moglibyśmy to zaimplementować, nakazując agentowi, po podjęciu decyzji o uruchomieniu kodu, wywołanie funkcji (lub skorzystanie z interfejsu narzędzi LangChain), która wysyła kod do usługi interpretera, a następnie przechwytuje dane wyjściowe i przekazuje je na forum.
+Dostęp do systemu plików : Ponieważ FtSystem działa na komputerze użytkownika (jak VS Code lub środowisko Cursor), powinien umożliwiać agentom odczyt lub zapis do lokalnego systemu plików (za zgodą użytkownika). Jest to ważne w przypadku zadań takich jak odczyt lokalnego zestawu danych, pisanie raportu lub pliku kodu, czy przechowywanie wyników pośrednich. Możemy zintegrować narzędzie systemu plików tak, aby agent mógł powiedzieć (na forum) coś w rodzaju „Zapiszę te wyniki w output.csv”, a system faktycznie wykona tę czynność. Cursor nie ma określonego MCP dla wejścia/wyjścia pliku, ale możemy to zaimplementować bezpośrednio za pomocą Pythona (upewniając się, że sprawdzamy ścieżki, aby uniknąć destrukcyjnych działań). Alternatywnie, potraktuj dostęp do powłoki (poniżej) jako sposób na użycie poleceń cat/ echodo odczytu/zapisu pliku. Powinniśmy zastosować zabezpieczenia: np. agenci nie powinni nadpisywać ważnych plików ani uzyskiwać dostępu do katalogów zastrzeżonych. W wierszu poleceń poinstruuj ich, aby potwierdzili z Masterem lub użytkownikiem przed wykonaniem głównych operacji na plikach.
+Wykonywanie poleceń powłoki : Umożliwienie agentom wykonywania poleceń powłoki może znacznie rozszerzyć funkcjonalność – na przykład poprzez instalację potrzebnego pakietu Pythona, uruchomienie narzędzia systemowego lub korzystanie z narzędzi wiersza poleceń. Cursor obsługuje to za pośrednictwem serwera powłoki MCP.
+glama.ai
+, który działa jako pomost dla agentów AI, umożliwiając im bezpieczne uruchamianie poleceń powłoki w systemie hosta. Integrując serwer powłoki, agent mógłby powiedzieć „Uruchomię szybkie polecenie systemowe, aby sprawdzić X”, a wynik polecenia zostałby zwrócony. Może to być pomocne w przypadku zadań takich jak pobieranie informacji o systemie, zarządzanie środowiskiem (np. uruchamianie serwera lokalnego, jeśli żądanie użytkownika tego wymaga) lub korzystanie z systemu Git do kontroli wersji w zadaniu programistycznym. Należy jednak zachować ostrożność podczas korzystania z dostępu do powłoki – system powinien mieć określone reguły (zgodnie z wytycznymi narzędzia MCP Shell).
+glama.ai
+), aby zapobiec działaniom destrukcyjnym. Na przykład, zawsze wyjaśniaj polecenie przed jego uruchomieniem i nigdy nie uruchamiaj polecenia, które nie było jawnie częścią realizacji żądania użytkownika. W FtSystem włączylibyśmy te reguły do monitu agenta i ewentualnie wymagalibyśmy potwierdzenia od użytkownika w przypadku poleceń wysokiego ryzyka.
+Przeglądanie sieci / wywołania API : Czasami agenci potrzebują informacji wykraczających poza dane treningowe – np. najnowszych cen akcji lub zaktualizowanej dokumentacji biblioteki. Integracja narzędzia do przeglądania sieci (takiego jak Browserbase , serwer MCP zapewniający przeglądarkę bez interfejsu graficznego)
+docs.cursor.com
+) umożliwiłoby agentowi pobieranie aktywnych stron internetowych. Podobnie, narzędzie API może pozwolić agentom na bezpośrednie wyszukiwanie w zewnętrznych API. Na przykład, agent może wywołać API pogodowe, jeśli zadaniem jest zaplanowanie harmonogramu wydarzenia plenerowego, lub wywołać API tłumaczeń w celu zapewnienia obsługi wielu języków. W katalogu Cursor MCP znajdują się konektory takie jak Zapier (do współpracy z tysiącami aplikacji).
+docs.cursor.com
+i Pipedream (z dostępem do ponad 10 tys. punktów końcowych API z wbudowanym uwierzytelnianiem)
+docs.cursor.com
+Można je zintegrować, aby agenci mieli praktycznie nieograniczony dostęp do usług zewnętrznych w kontrolowany sposób. W praktyce można skonfigurować klucze API dla tych usług i ewentualnie skorzystać z wrapperów narzędzi LangChain lub niestandardowego systemu wtyczek, w którym dane wyjściowe agenta, na przykład, API_CALL[service, params]wyzwalają funkcję w naszym kodzie.
+Rozszerzenia specyficzne dla Cursora : Jeśli korzystasz ze środowiska programistycznego Cursor IDE, skorzystaj z wbudowanych funkcji, takich jak Code Analyzer lub Bugbot, do przeglądu kodu. Na przykład, jeśli Agent4 jest agentem „Critic”, może skorzystać z narzędzia do analizy statycznej (Bugbot Cursora) w kodzie wygenerowanym przez Agenta2, a następnie zgłaszać problemy. Chociaż nie są to dokładnie funkcje MCP, są to funkcje środowiskowe, które można aktywować za pomocą interfejsu wiersza poleceń (CLI) lub API. Dodatkowo, funkcja „Memories” Cursora może być wykorzystana do przechowywania kontekstu w edytorze – ale ponieważ zarządzamy już pamięcią wewnętrznie, może się to nakładać.
+Aby włączyć te rozszerzenia, należy poprawnie skonfigurować środowisko. W przypadku serwerów MCP oznacza to aktualizację plików konfiguracyjnych Cursor (lub VS Code z rozszerzeniem Cline) w celu zarejestrowania tych narzędzi (jak pokazano w instrukcji instalacji serwera powłoki).
+glama.ai
+glama.ai
+Z perspektywy projektowania podpowiedzi, instruujemy LLM (podczas generowania kodu), aby uwzględniał hooki lub klasy do obsługi narzędzi. Na przykład, możemy mieć ToolManagerklasę, która komunikuje się z serwerami MCP za pośrednictwem wywołań HTTP lub lokalnych. Agent, decydując się na użycie narzędzia, wywołuje ToolManager.run("shell", "ls -la")lub ToolManager.run("code_interpreter", "python_code_string")itd., a Menedżer narzędzi zajmuje się resztą (wysyłaniem danych do serwera MCP i zwracaniem danych wyjściowych). Rekomendując i integrując te narzędzia, FtSystem zbliża się do systemów takich jak Auto-GPT lub „asystenci DevOps oparty na sztucznej inteligencji”, które potrafią nie tylko myśleć i komunikować się, ale także działać w świecie rzeczywistym (wykonywać kod, modyfikować pliki, wysyłać zapytania do API). To znacząco zwiększa praktyczną użyteczność. Na przykład, użytkownik może zapytać: „Agencie, utwórz nowy projekt Django i skonfiguruj prostą aplikację”, a dzięki dostępowi do powłoki i wykonywania kodu, agenci mogą faktycznie zainicjować folder projektu, uruchomić program django-admin startprojectitd., zamiast tylko mówić użytkownikowi, co ma robić. Podsumowując, w komunikacie do LLM (generującym projekt FtSystem) należy podkreślić modułową konstrukcję umożliwiającą te rozszerzenia. Kod powinien być napisany z myślą o tym, że dodanie nowego narzędzia jest tak proste, jak dodanie nowej metody w Menedżerze narzędzi i nowego uprawnienia w regułach agenta. Dzięki wczesnemu planowaniu MCP i rozszerzeń, FtSystem będzie przyszłościowym interfejsem CLI agenta AI, gotowym do współpracy z szerszym ekosystemem narzędzi programistycznych i interfejsów API, niczym uniwersalny „port USB-C” dla funkcji AI.
+medium.com
+– elastyczne, wydajne i zgodne z najnowszymi standardami branżowymi.
