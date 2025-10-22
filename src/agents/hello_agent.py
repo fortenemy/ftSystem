@@ -1,17 +1,17 @@
 
-# src/agents/hello_agent.py
-
-from agents.base import Agent, AgentConfig
-import typer
-
+import logging
+from .base import Agent, AgentConfig
+from typing import Any
 
 class HelloAgent(Agent):
     """
     Minimal demonstration agent that prints a greeting.
     """
-
     def __init__(self, config: AgentConfig):
         super().__init__(config)
 
-    def run(self, **kwargs) -> None:  # type: ignore[override]
-        typer.echo("Hello, world!")
+    def run(self, **kwargs: Any) -> Any:
+        """Logs a message and returns it."""
+        message = "Hello, world!"
+        logging.info(message)
+        return message

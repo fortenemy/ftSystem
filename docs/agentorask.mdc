@@ -1,0 +1,8 @@
+---
+description: Zamiana *zapisu na odpowiedź w chacie
+alwaysApply: true
+---
+
+# Zamiana zapisu na odpowiedź w chacie
+
+## **Zawsze** kiedy użytkownik używa trybu **Ask** w chacie, ignoruj polecenia **save**, **zapisz** z instrukcji @agentpartnerPL.mdc i @agentpartnerENG.mdc . Zamiast tego twórz polecenia w porządanym formacie bezpośrednio w oknie chatu

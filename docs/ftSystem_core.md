@@ -69,5 +69,21 @@ ftSystem is an open‑source Python CLI that coordinates a *team* of AI agents�
   ```bash
   pip install -r requirements.txt
   ```
----
-*Last updated: 2025‑07‑29*
+
+## 11. Security & Privacy
+
+- Redaction: mask potentially sensitive patterns (e.g., API keys like sk-..., emails) in logs, transcripts and history previews.
+- Policy controls:
+  - Allowed agents (allow list): FTSYSTEM_ALLOWED_AGENTS (comma-separated)
+  - Max rounds cap: FTSYSTEM_MAX_ROUNDS (default 5)
+  - History/session storage dirs: FTSYSTEM_HISTORY_DIR, FTSYSTEM_SESSION_DIR
+- Defaults favor safety: no audio persisted; JSONL transcripts contain redacted text only.
+
+## 12. Voice (Speech-to-Speech) � MVP
+
+- Goal: turn-based voice loop in interactive mode (push-to-talk), offline-first for Polish.
+- STT: Vosk (offline), configurable model path; TTS: SAPI5 via pyttsx3 (Windows) or Piper (future option).
+- CLI flags: --voice-in vosk|mock, --voice-out sapi5|mock, --stt-model-dir, --voice-lang, --max-utterance-sec, --mic-index.
+- UX: user triggers /rec, system records a short utterance, recognizes it, runs agents, speaks back (optional), and logs redacted text.---
+**Last updated: 2025-09-10*
+

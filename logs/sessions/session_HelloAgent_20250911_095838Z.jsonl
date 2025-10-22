@@ -1,0 +1,2 @@
+{"timestamp": "2025-09-11T09:58:38.356501+00:00", "role": "user", "agent": "HelloAgent", "text": "hello"}
+{"timestamp": "2025-09-11T09:58:38.358728+00:00", "role": "agent", "agent": "HelloAgent", "text": "Hello, world!"}

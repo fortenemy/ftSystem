@@ -14,13 +14,14 @@ from pydantic import BaseModel
 from agents import AGENT_REGISTRY, AGENT_IMPORT_ERRORS  # dynamiczny rejestr agentów
 from agents.base import AgentConfig, SessionSummary
 from core.security import Redactor
-from rag.simple import build_index as rag_build_index, query_index as rag_query_index
 
 app = typer.Typer(help="ftSystem - Multi-Agent AI CLI")
 history_app = typer.Typer(help="Session history utilities")
 app.add_typer(history_app, name="history")
-rag_app = typer.Typer(help="Local retrieval (RAG) utilities")
-app.add_typer(rag_app, name="rag")
+voice_app = typer.Typer(help="Voice utilities")
+app.add_typer(voice_app, name="voice")
+security_app = typer.Typer(help="Security utilities")
+app.add_typer(security_app, name="security")
 
 # Global profile setting (dev/prod)
 PROFILE: str = os.environ.get("FTSYSTEM_PROFILE", "dev")
@@ -88,6 +89,7 @@ def run(
     config: Path = typer.Option(None, "--config", help="Path to agent config file (JSON or YAML)"),
     param: list[str] = typer.Option(None, "--param", help="Override config params key=value (repeatable)"),
     output: Path = typer.Option(None, "--output", help="If set, save run() result to JSON at this path"),
+    tag: list[str] = typer.Option(None, "--tag", help="Add session tag (repeatable)"),
 ):
     """
     Run selected agent with optional configuration.
@@ -110,6 +112,7 @@ def run(
 
     # Instantiate and run agent
     agent_instance = agent_cls(agent_config)
+    _set_current_tags(tag)
     result = agent_instance.run()
     typer.echo(f"{agent}.run() result: {result}")
     if output is not None:
@@ -129,8 +132,28 @@ def run(
 def list_agents(
     verbose: bool = typer.Option(False, "--verbose", help="Show docstring and module path"),
     show_errors: bool = typer.Option(False, "--show-errors", help="Show agent import errors"),
+    format: str = typer.Option("text", "--format", help="Output format: text|json"),
 ):
     """Display the list of available agents."""
+    fmt = (format or "text").lower()
+    if fmt not in {"text", "json"}:
+        raise typer.BadParameter("--format must be 'text' or 'json'")
+    if fmt == "json":
+        agents = []
+        for name, cls in AGENT_REGISTRY.items():
+            item = {"name": name}
+            if verbose:
+                item["module"] = cls.__module__
+                doc = inspect.getdoc(cls) or ""
+                if doc:
+                    item["doc"] = doc
+            agents.append(item)
+        out = {"agents": agents}
+        if show_errors and AGENT_IMPORT_ERRORS:
+            out["errors"] = {k: str(v) for k, v in AGENT_IMPORT_ERRORS.items()}
+        typer.echo(json.dumps(out, ensure_ascii=False))
+        return
+    # text output
     typer.echo("Available agents:")
     for name, cls in AGENT_REGISTRY.items():
         if verbose:
@@ -235,6 +258,7 @@ def _persist_session_summary(agent: str, status: str, message: Optional[str], da
             status=status,
             message=message,
             data_preview=preview,
+            tags=_current_tags(),
         )
         path = _history_path_for()
         with open(path, "a", encoding="utf-8") as f:
@@ -249,8 +273,11 @@ def _persist_session_summary(agent: str, status: str, message: Optional[str], da
 def history_show(
     date: Optional[str] = typer.Option(None, "--date", help="Date YYYY-MM-DD to show (default today)"),
     limit: int = typer.Option(20, "--limit", help="Max lines to show"),
+    offset: int = typer.Option(0, "--offset", help="Skip first N matching entries (newest-first)"),
     agent: Optional[str] = typer.Option(None, "--agent", help="Filter by agent name"),
     contains: Optional[str] = typer.Option(None, "--contains", help="Filter by substring in message or data preview"),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Filter by tag"),
+    json_out: bool = typer.Option(False, "--json", help="Output as a JSON array instead of JSONL lines"),
 ):
     """Show recent session summaries from JSONL files (with optional filters)."""
     dt = None
@@ -264,7 +291,8 @@ def history_show(
         typer.echo(f"No history for date: {date or datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
         raise typer.Exit(code=0)
     lines = path.read_text(encoding="utf-8").splitlines()
-    emitted = 0
+    # newest-first
+    filtered: list[tuple[str, dict]] = []
     for line in reversed(lines):
         try:
             obj = json.loads(line)
@@ -277,10 +305,17 @@ def history_show(
             or (obj.get("data_preview") and contains in obj.get("data_preview", ""))
         ):
             continue
-        typer.echo(line)
-        emitted += 1
-        if emitted >= limit:
-            break
+        if tag and not (obj.get("tags") and tag in obj.get("tags", [])):
+            continue
+        filtered.append((line, obj))
+    start = max(0, int(offset))
+    end = start + int(limit) if limit else None
+    page = filtered[start:end]
+    if json_out:
+        typer.echo(json.dumps([obj for _, obj in page], ensure_ascii=False))
+    else:
+        for line, _ in page:
+            typer.echo(line)
 
 
 # ---------------------
@@ -349,10 +384,353 @@ def _build_agent_config(agent: str, config_path: Optional[Path], cli_params: Opt
     return AgentConfig(**data)
 
 
+# ---------------------
+# Config dir & profiles
+# ---------------------
+
+def _config_dir() -> Path:
+    base = os.environ.get("FTSYSTEM_CONFIG_DIR")
+    return Path(base) if base else Path("logs") / "config"
+
+
+def _voice_profile_path() -> Path:
+    d = _config_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "voice_profile.json"
+
+
+def _load_voice_profile() -> dict:
+    p = _voice_profile_path()
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_voice_profile(data: dict) -> None:
+    p = _voice_profile_path()
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# Tags context (process-local)
+_TAGS: list[str] = []
+
+
+def _set_current_tags(tags: Optional[list[str]]) -> None:
+    global _TAGS
+    _TAGS = [t for t in (tags or []) if isinstance(t, str) and t.strip()]
+
+
+def _current_tags() -> list[str]:
+    return list(_TAGS)
+
+
+@history_app.command("find")
+def history_find(
+    contains: str = typer.Option(..., "--contains", help="Substring to search in message/data"),
+    agent: Optional[str] = typer.Option(None, "--agent", help="Filter by agent name"),
+    since: Optional[str] = typer.Option(None, "--since", help="Start date YYYY-MM-DD (inclusive)"),
+    days: Optional[int] = typer.Option(None, "--days", help="Search from last N days (inclusive)"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Limit number of results (after ordering)"),
+    reverse: bool = typer.Option(False, "--reverse", help="Newest-first ordering (default oldest-first)"),
+    offset: int = typer.Option(0, "--offset", help="Skip first N results after ordering"),
+    json_out: bool = typer.Option(False, "--json", help="Output JSON array"),
+):
+    """Search across multiple history files by substring and optional filters."""
+    if since and days is not None:
+        raise typer.BadParameter("Use either --since or --days, not both")
+    from datetime import date as _date, timedelta as _timedelta
+
+    pdir = _history_dir()
+    files = list(pdir.glob("history_*.jsonl")) if pdir.exists() else []
+    date_from: Optional[_date] = None
+    if since:
+        try:
+            date_from = _date.fromisoformat(since)
+        except Exception:
+            raise typer.BadParameter("--since must be YYYY-MM-DD")
+    elif days is not None:
+        today = _date.today()
+        d = max(0, int(days))
+        date_from = _date.fromordinal(today.toordinal() - max(0, d - 1))
+    # Filter files by date
+    selected: list[tuple[_date, Path]] = []
+    for f in files:
+        try:
+            dstr = f.stem.split("_")[1]
+            fd = _date.fromisoformat(dstr)
+        except Exception:
+            continue
+        if date_from is None or fd >= date_from:
+            selected.append((fd, f))
+    selected.sort(key=lambda t: t[0], reverse=bool(reverse))
+    hits: list[dict] = []
+    needle = contains
+    for _, path in selected:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for line in lines:
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            if agent and obj.get("agent") != agent:
+                continue
+            if not (
+                (obj.get("message") and needle in obj.get("message", ""))
+                or (obj.get("data_preview") and needle in obj.get("data_preview", ""))
+            ):
+                continue
+            obj_with_src = dict(obj)
+            obj_with_src["_file"] = str(path)
+            hits.append(obj_with_src)
+    total = len(hits)
+    # apply offset + limit
+    start = max(0, int(offset))
+    end = start + int(limit) if limit else None
+    items = hits[start:end]
+    if json_out:
+        typer.echo(json.dumps({"total": total, "items": items}, ensure_ascii=False))
+    else:
+        for obj in items:
+            typer.echo(json.dumps(obj, ensure_ascii=False))
+
+
+@history_app.command("stats")
+def history_stats(
+    since: Optional[str] = typer.Option(None, "--since", help="Start date YYYY-MM-DD (inclusive)"),
+    days: Optional[int] = typer.Option(None, "--days", help="From last N days (inclusive)"),
+    agent: Optional[str] = typer.Option(None, "--agent", help="Restrict counts to a specific agent"),
+    json_out: bool = typer.Option(False, "--json", help="Output JSON"),
+):
+    """Aggregate counts per agent and status across history files."""
+    if since and days is not None:
+        raise typer.BadParameter("Use either --since or --days, not both")
+    from datetime import date as _date
+
+    pdir = _history_dir()
+    files = list(pdir.glob("history_*.jsonl")) if pdir.exists() else []
+    date_from: Optional[_date] = None
+    if since:
+        try:
+            date_from = _date.fromisoformat(since)
+        except Exception:
+            raise typer.BadParameter("--since must be YYYY-MM-DD")
+    elif days is not None:
+        today = _date.today()
+        d = max(0, int(days))
+        date_from = _date.fromordinal(today.toordinal() - max(0, d - 1))
+    # Aggregate
+    by_agent: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    total = 0
+    for f in files:
+        try:
+            dstr = f.stem.split("_")[1]
+            fd = _date.fromisoformat(dstr)
+        except Exception:
+            continue
+        if date_from is not None and fd < date_from:
+            continue
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for line in lines:
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            ag = str(obj.get("agent", ""))
+            if agent and ag != agent:
+                continue
+            total += 1
+            st = str(obj.get("status", ""))
+            by_agent[ag] = by_agent.get(ag, 0) + 1
+            by_status[st] = by_status.get(st, 0) + 1
+    if json_out:
+        typer.echo(json.dumps({"total": total, "by_agent": by_agent, "by_status": by_status}, ensure_ascii=False))
+        return
+    typer.echo(f"Total: {total}")
+    typer.echo("By agent:")
+    for k, v in sorted(by_agent.items()):
+        typer.echo(f" - {k}: {v}")
+    typer.echo("By status:")
+    for k, v in sorted(by_status.items()):
+        typer.echo(f" - {k}: {v}")
+
+
+@security_app.command("redact")
+def security_redact(
+    inp: Path = typer.Option(..., "--in", help="Input text file"),
+    out: Path = typer.Option(..., "--out", help="Output text file"),
+    level: Optional[str] = typer.Option(None, "--level", help="Redaction level: strict|normal"),
+):
+    """Apply redaction to a text file using configured (or overridden) level."""
+    if level:
+        Redactor.set_level(level)
+    if not inp.exists():
+        typer.echo(f"Input not found: {inp}", err=True)
+        raise typer.Exit(code=1)
+    text = inp.read_text(encoding="utf-8", errors="ignore")
+    red = Redactor.redact(text) or ""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(red, encoding="utf-8")
+    typer.echo(f"Wrote redacted text to {out}")
+
+
+@history_app.command("export")
+def history_export(
+    out: Path = typer.Option(..., "--out", help="Output file path (JSONL)"),
+    date: Optional[str] = typer.Option(None, "--date", help="Date YYYY-MM-DD (default today)"),
+    limit: int = typer.Option(None, "--limit", help="Limit number of entries (from newest)"),
+    agent: Optional[str] = typer.Option(None, "--agent", help="Filter by agent name"),
+    contains: Optional[str] = typer.Option(None, "--contains", help="Filter by substring in message/data"),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Filter by tag name"),
+):
+    """Export filtered history to a JSONL file."""
+    dt = None
+    if date:
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise typer.BadParameter("--date must be in YYYY-MM-DD format")
+    path = _history_path_for(dt)
+    if not path.exists():
+        typer.echo(f"No history for date: {date or datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
+        raise typer.Exit(code=0)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with out.open("w", encoding="utf-8") as f:
+        for line in reversed(lines):
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            if agent and obj.get("agent") != agent:
+                continue
+            if contains and not (
+                (obj.get("message") and contains in obj.get("message", ""))
+                or (obj.get("data_preview") and contains in obj.get("data_preview", ""))
+            ):
+                continue
+            if tag and not (obj.get("tags") and tag in obj.get("tags", [])):
+                continue
+            f.write(json.dumps(obj, ensure_ascii=False))
+            f.write("\n")
+            count += 1
+            if limit and count >= limit:
+                break
+    typer.echo(f"Exported {count} entries to {out}")
+
+
+@history_app.command("clear")
+def history_clear(
+    date: Optional[str] = typer.Option(None, "--date", help="Date YYYY-MM-DD (default today)"),
+    all_files: bool = typer.Option(False, "--all", help="Clear all history files in the history dir"),
+    yes: bool = typer.Option(False, "--yes", help="Do not prompt for confirmation"),
+):
+    """Delete history file(s). Safe by default; requires --yes."""
+    if not yes:
+        typer.echo("Refusing to clear without --yes")
+        raise typer.Exit(code=1)
+    pdir = _history_dir()
+    if all_files:
+        if not pdir.exists():
+            typer.echo("Nothing to clear")
+            raise typer.Exit(code=0)
+        removed = 0
+        for p in pdir.glob("history_*.jsonl"):
+            try:
+                p.unlink()
+                removed += 1
+            except Exception:
+                pass
+        typer.echo(f"Removed {removed} files from {pdir}")
+        raise typer.Exit(code=0)
+    dt = None
+    if date:
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise typer.BadParameter("--date must be in YYYY-MM-DD format")
+    p = _history_path_for(dt)
+    if p.exists():
+        p.unlink()
+        typer.echo(f"Removed {p}")
+    else:
+        typer.echo("Nothing to clear")
+
+
+@history_app.command("prune")
+def history_prune(
+    keep: Optional[int] = typer.Option(None, "--keep", help="Keep last N entries for a given date"),
+    date: Optional[str] = typer.Option(None, "--date", help="Date YYYY-MM-DD (default today)"),
+    days: Optional[int] = typer.Option(None, "--days", help="Remove history files older than N days"),
+    yes: bool = typer.Option(False, "--yes", help="Confirm pruning operation"),
+):
+    """Prune history: keep last N entries or remove files older than N days."""
+    if not yes:
+        typer.echo("Refusing to prune without --yes")
+        raise typer.Exit(code=1)
+    # Files aging mode
+    if days is not None:
+        from datetime import date as _date
+
+        today = _date.today()
+        try:
+            ndays = int(days)
+        except Exception:
+            raise typer.BadParameter("--days must be an integer")
+        cutoff = _date.fromordinal(today.toordinal() - max(0, ndays))
+        pdir = _history_dir()
+        removed = 0
+        if pdir.exists():
+            for p in pdir.glob("history_*.jsonl"):
+                try:
+                    dstr = p.stem.split("_")[1]
+                    pd = _date.fromisoformat(dstr)
+                except Exception:
+                    continue
+                if pd < cutoff:
+                    try:
+                        p.unlink()
+                        removed += 1
+                    except Exception:
+                        pass
+        typer.echo(f"Removed {removed} old file(s)")
+        return
+    # Line prune mode
+    if keep is None:
+        raise typer.BadParameter("Specify --keep N or --days N")
+    if date:
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise typer.BadParameter("--date must be in YYYY-MM-DD format")
+    else:
+        dt = None
+    p = _history_path_for(dt)
+    if not p.exists():
+        typer.echo("No history file to prune")
+        raise typer.Exit(code=0)
+    lines = p.read_text(encoding="utf-8").splitlines()
+    k = max(0, int(keep))
+    new_lines = lines[-k:] if k > 0 else []
+    p.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+    typer.echo(f"Pruned to {len(new_lines)} entrie(s) in {p}")
+
+
 @history_app.command("replay")
 def history_replay(
     file: Path = typer.Argument(..., help="Path to a session transcript JSONL file"),
     limit: int = typer.Option(None, "--limit", help="Max turns to show (from start)"),
+    out: Path = typer.Option(None, "--out", help="If set, save pretty output to this file"),
 ):
     """Replay a transcript file (JSONL) with pretty formatting."""
     if not file.exists():
@@ -360,6 +738,7 @@ def history_replay(
         raise typer.Exit(code=1)
     lines = file.read_text(encoding="utf-8").splitlines()
     count = 0
+    pretty: list[str] = []
     for line in lines:
         try:
             obj = json.loads(line)
@@ -375,12 +754,19 @@ def history_replay(
         ag = obj.get("agent", "?")
         text = obj.get("text", "")
         if role == "agent":
-            typer.echo(f"[{tdisp}] {role}({ag}): {text}")
+            pretty.append(f"[{tdisp}] {role}({ag}): {text}")
         else:
-            typer.echo(f"[{tdisp}] {role}: {text}")
+            pretty.append(f"[{tdisp}] {role}: {text}")
         count += 1
         if limit and count >= limit:
             break
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(pretty) + ("\n" if pretty else ""), encoding="utf-8")
+        typer.echo(f"Saved replay to {out}")
+    else:
+        for l in pretty:
+            typer.echo(l)
 
 
 @app.command("interactive")
@@ -399,6 +785,8 @@ def interactive(
         None, "--silence-timeout-sec", help="Auto-stop after this many seconds of silence (when using --voice-in vosk)"
     ),
     beep: bool = typer.Option(True, "--beep/--no-beep", help="Play beeps on start/stop recording"),
+    tag: list[str] = typer.Option(None, "--tag", help="Add session tag (repeatable)"),
+    dry_run_tts: bool = typer.Option(False, "--dry-run-tts", help="Log TTS text instead of speaking (for tests)"),
 ):
     """Interactive loop that maintains session and writes summaries."""
     if agent not in AGENT_REGISTRY:
@@ -428,10 +816,19 @@ def interactive(
         agent_config = AgentConfig(name=agent, description=f"Interactive config for {agent}")
 
     agent_instance = AGENT_REGISTRY[agent](agent_config)
+    # Tags
+    _set_current_tags(tag)
     typer.echo("Interactive mode. Type /exit to quit, /help for help.")
     # Voice setup (lazy, only when requested)
     stt = None
     tts = None
+    last_reply: Optional[str] = None
+    # Apply voice profile defaults if not explicitly provided
+    prof = _load_voice_profile()
+    voice_lang_eff = voice_lang or prof.get("voice_lang", voice_lang)
+    mic_index_eff = mic_index if mic_index is not None else prof.get("mic_index")
+    beep_eff = beep if ("beep" not in prof) else bool(prof.get("beep"))
+
     if voice_in:
         def _make_stt():
             if voice_in == "mock":
@@ -445,11 +842,11 @@ def interactive(
                 model_dir_eff = stt_model_dir or Path(os.environ.get("FTSYSTEM_VOSK_MODEL", ""))
                 cfg = STTConfig(
                     model_dir=model_dir_eff,
-                    lang=voice_lang,
+                    lang=voice_lang_eff,
                     samplerate=16000,
                     max_seconds=max_utterance_sec,
-                    device_index=mic_index,
-                    beep=bool(beep),
+                    device_index=mic_index_eff,
+                    beep=bool(beep_eff),
                     silence_timeout_sec=silence_timeout_sec,
                 )
                 return VoskSTT(cfg)
@@ -465,7 +862,7 @@ def interactive(
                 return _MockTTS()
             if voice_out == "sapi5":
                 from core.voice import SapiTTS
-                return SapiTTS(lang=voice_lang)
+                return SapiTTS(lang=voice_lang_eff)
             raise typer.BadParameter(f"Unsupported --voice-out: {voice_out}")
         tts = _make_tts()
         typer.echo("Voice output enabled.")
@@ -507,7 +904,7 @@ def interactive(
                 break
             if cmd == "/help":
                 extra = " /rec" if stt else ""
-                typer.echo(f"Commands: /exit, /help, /history{extra}")
+                typer.echo(f"Commands: /exit, /help, /history /last /tags{extra}")
                 continue
             if cmd == "/history":
                 # Show last 10 items
@@ -518,6 +915,37 @@ def interactive(
                 lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
                 for line in lines[-10:]:
                     typer.echo(line)
+                continue
+            if cmd == "/last":
+                typer.echo(last_reply or "(no reply yet)")
+                continue
+            if cmd == "/tags":
+                tags = _current_tags()
+                typer.echo(", ".join(tags) if tags else "(no tags)")
+                continue
+            if cmd.startswith("/save"):
+                parts = cmd.split(maxsplit=1)
+                if len(parts) == 1:
+                    typer.echo("Usage: /save <file>")
+                    continue
+                if not last_reply:
+                    typer.echo("Nothing to save (no last reply).")
+                    continue
+                dest = Path(parts[1]).expanduser()
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(last_reply, encoding="utf-8")
+                    typer.echo(f"Saved to: {dest}")
+                except Exception as e:
+                    typer.echo(f"Save error: {e}", err=True)
+                continue
+            if cmd == "/clear":
+                # Try ANSI clear; also print a confirmation line for testability
+                try:
+                    typer.echo("\x1b[2J\x1b[H", nl=False)
+                except Exception:
+                    pass
+                typer.echo("Screen cleared.")
                 continue
             if cmd == "/rec":
                 if not stt:
@@ -536,9 +964,13 @@ def interactive(
                 _append_session_turn(session_path, role="user", agent_name=agent, text=utter_red)
                 res = agent_instance.run(input=utter_red)
                 typer.echo(f"-> {res}")
+                last_reply = str(res)
                 if tts:
                     try:
-                        tts.speak(str(res))
+                        if dry_run_tts:
+                            typer.echo(f"[TTS] {str(res)}")
+                        else:
+                            tts.speak(str(res))
                     except Exception:
                         pass
                 _persist_session_summary(agent, status="ok", message=f"input:{utter_red}", data=res)
@@ -554,38 +986,96 @@ if __name__ == "__main__":
     app()
 
 
-# =========================
-# RAG subcommands
-# =========================
-
-@rag_app.command("index")
-def rag_index(
-    src: Path = typer.Option(..., "--src", help="Source folder or file with .txt/.md content"),
-    index_dir: Path = typer.Option(Path("data") / "index", "--index-dir", help="Index output directory"),
+@voice_app.command("profile")
+def voice_profile(
+    show: bool = typer.Option(False, "--show", help="Show current voice profile as JSON"),
+    set_: bool = typer.Option(False, "--set", help="Set fields from provided options"),
+    voice_lang: Optional[str] = typer.Option(None, "--voice-lang"),
+    mic_index: Optional[int] = typer.Option(None, "--mic-index"),
+    beep: Optional[bool] = typer.Option(None, "--beep/--no-beep"),
 ):
-    """Build/refresh a simple local text index from files."""
-    if not src.exists():
-        typer.echo(f"Source not found: {src}", err=True)
-        raise typer.Exit(code=1)
-    out = rag_build_index(src, index_dir)
-    typer.echo(f"Index written: {out}")
+    """Manage voice defaults used by interactive mode."""
+    prof = _load_voice_profile()
+    if set_:
+        if voice_lang is not None:
+            prof["voice_lang"] = voice_lang
+        if mic_index is not None:
+            prof["mic_index"] = mic_index
+        if beep is not None:
+            prof["beep"] = bool(beep)
+        _save_voice_profile(prof)
+    if show or not set_:
+        typer.echo(json.dumps(prof, ensure_ascii=False))
 
 
-@rag_app.command("query")
-def rag_query(
-    q: str = typer.Option(..., "--q", help="Query text"),
-    index_dir: Path = typer.Option(Path("data") / "index", "--index-dir", help="Index directory"),
-    top_k: int = typer.Option(5, "--top-k", help="Number of results to return"),
+@voice_app.command("devices")
+def voice_devices(
+    list_voices: bool = typer.Option(False, "--list-voices", help="Also list TTS voices (pyttsx3)"),
+    json_out: bool = typer.Option(False, "--json", help="Output JSON instead of text"),
 ):
-    """Query the local index and print top-k results."""
+    """List available input audio devices and optionally TTS voices."""
+    result: dict = {}
+    # Microphones via sounddevice
     try:
-        results = rag_query_index(index_dir, q, top_k=top_k)
-    except FileNotFoundError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
-    for rank, (score, rec) in enumerate(results, start=1):
-        snippet = str(rec.get("text", "")).strip().replace("\n", " ")
-        if len(snippet) > 160:
-            snippet = snippet[:157] + "..."
-        typer.echo(f"{rank}. [{score:.2f}] {rec.get('doc_path')}#{rec.get('chunk_idx')}: {snippet}")
+        import sounddevice as sd  # type: ignore
+
+        devices = sd.query_devices()
+        mics = []
+        for idx, dev in enumerate(devices):
+            if (dev.get("max_input_channels") or 0) > 0:
+                mics.append(
+                    {
+                        "index": idx,
+                        "name": dev.get("name"),
+                        "samplerate": dev.get("default_samplerate"),
+                        "hostapi": dev.get("hostapi"),
+                    }
+                )
+        result["microphones"] = mics
+    except Exception:
+        result["microphones"] = []
+        result["note_microphones"] = "sounddevice not installed or unavailable"
+
+    if list_voices:
+        try:
+            import pyttsx3  # type: ignore
+
+            eng = pyttsx3.init()
+            voices = []
+            for v in eng.getProperty("voices"):
+                voices.append(
+                    {
+                        "id": getattr(v, "id", None),
+                        "name": getattr(v, "name", None),
+                        "languages": [str(x) for x in (getattr(v, "languages", []) or [])],
+                    }
+                )
+            result["voices"] = voices
+        except Exception:
+            result["voices"] = []
+            result["note_voices"] = "pyttsx3 not installed or unavailable"
+
+    if json_out:
+        typer.echo(json.dumps(result, ensure_ascii=False))
+        return
+    # Text output
+    typer.echo("Microphones:")
+    if result.get("microphones"):
+        for m in result["microphones"]:
+            typer.echo(
+                f" - #{m['index']}: {m['name']} (sr={m['samplerate']}, hostapi={m['hostapi']})"
+            )
+    else:
+        typer.echo(
+            " - (none)" + (" - sounddevice not installed" if result.get("note_microphones") else "")
+        )
+    if list_voices:
+        typer.echo("TTS Voices:")
+        if result.get("voices"):
+            for v in result["voices"]:
+                typer.echo(f" - {v['name']} ({','.join(v['languages'])})")
+        else:
+            typer.echo(
+                " - (none)" + (" - pyttsx3 not installed" if result.get("note_voices") else "")
+            )
 

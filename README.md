@@ -25,16 +25,10 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
   - Example: `python -m src.main --log-level DEBUG list-agents`
 - Verbose agents list: `list-agents --verbose` (shows docstrings and module paths)
 - Import errors: `list-agents --show-errors` (diagnostics for failed agent imports)
+- JSON output: `list-agents --format json [--verbose --show-errors]`
 - New agent generator: `new-agent <Name> [--target-dir src/agents] [--config-out cfg.json] [--force]`
   - Example: `python -m src.main new-agent Report --config-out report_config.json`
 - Config formats: JSON and YAML (`--config file.yaml`)
-
-### RAG (Local Retrieval)
-
-- Build index: `python -m src.main rag index --src <folder|file> [--index-dir data/index]`
-- Query index: `python -m src.main rag query --q "<text>" [--top-k 5] [--index-dir data/index]`
-- Supported sources: `.txt`, `.md`. Index stored as JSONL in `data/index/chunks.jsonl`.
-
 
 ### Orchestration
 
@@ -68,8 +62,43 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
   - Stores transcript in `logs/sessions/session_<agent>_<timestamp>.jsonl`
   - Env overrides: `FTSYSTEM_SESSION_DIR`
 - Session history (JSONL summaries): `python -m src.main history show --limit 10`
+  - JSON array output: `--json`
+  - Filter by tag: `--tag mytag`
   - Filters: `--agent HelloAgent`, `--contains Hello`
+  - Paging: `--offset N` plus `--limit N` (newest-first)
 - Replay a transcript file: `python -m src.main history replay logs/sessions/<file>.jsonl`
+  - Save replay to file: `--out replay.txt`
+- Export history: `python -m src.main history export --out export.jsonl [--limit 50]`
+- Clear history: `python -m src.main history clear --yes [--all]`
+ - Prune history: `python -m src.main history prune --keep 100 --yes` or remove old files: `--days 7 --yes`
+- Find across days: `python -m src.main history find --contains "Hello" --days 7 --json`
+  - Pagination: `--offset N`, `--limit N` and `--reverse` (newest-first)
+  - JSON result: `{ "total": <int>, "items": [ ... ] }`
+  - Example: `python -m src.main history find --contains "Hello" --days 30 --offset 20 --limit 10 --reverse --json`
+  - Ordering: `--reverse` (newest-first), limit: `--limit N`
+- Stats: `python -m src.main history stats --days 7 --json`
+  - Filter by agent: `--agent MasterAgent`
+
+### Voice Utilities
+
+- List input devices (microphones): `python -m src.main voice devices`
+- Include TTS voices: `python -m src.main voice devices --list-voices`
+- JSON output: `--json`
+- Profiles: `python -m src.main voice profile --set --voice-lang en-US --mic-index 2 --no-beep` and `--show`
+- Interactive extras: inside interactive, use `/last` (show last agent reply), `/tags`, `/clear` (wipe screen)
+ - TTS dry-run (tests/dev): `--dry-run-tts` logs TTS text instead of speaking
+
+### Security Tools
+
+- Redact file content: `python -m src.main security redact --in in.txt --out out.txt [--level strict|normal]`
+  - Strict masks: bearer tokens, AWS keys, IPv4, long numbers, PL IBAN/PESEL
+  - Also masks PL NIP (10 digits, with separators) and EU VAT `PL` + 10 digits
+  - Policy: default redaction level is `normal`; use `--redact-level strict` for broader masking. We do not bypass redaction in CLI commands unless explicitly configured.
+
+### Tags
+
+- Add tags to sessions: `--tag <name>` in `run` or `interactive` (repeatable)
+- Filter by tag in `history show --tag <name>`
 
 ## Testing
 

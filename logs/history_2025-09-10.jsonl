@@ -1,0 +1,58 @@
+{"timestamp":"2025-09-10T13:07:48.690891","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:07:48.781292","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:12:47.020475Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:12:47.092825Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T13:12:47.180401Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:13:10.255974Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:13:10.323977Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T13:13:10.355109Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:47:13.698928Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:47:13.847426Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T13:47:13.867117Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 2, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T13:47:13.895828Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:50:54.706453Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:50:54.771647Z","agent":"HelloAgent","status":"ok","message":"input:hello","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T13:50:54.809421Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T13:50:54.825909Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 2, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T13:50:54.850154Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T14:01:20.134491Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T14:01:20.233910Z","agent":"HelloAgent","status":"ok","message":"input:hello","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T14:01:21.284907Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T14:01:21.305380Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 2, 'results': {'HelloAgent': 'Hello, world!'}}"}
+{"timestamp":"2025-09-10T14:01:22.323630Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'SlowAgent': {'error': 'timeout'}}}"}
+{"timestamp":"2025-09-10T14:01:22.356915Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T14:14:11.812342Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T14:14:11.856822Z","agent":"ConfigEchoAgent","status":"ok","message":null,"data_preview":"{'name': 'from_env', 'description': 'from_env_desc', 'params': {'a': 9, 'b': 10, 'c': 3, 'd': 'ok'}}"}
+{"timestamp":"2025-09-10T14:14:11.922880Z","agent":"HelloAgent","status":"ok","message":"input:hello","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T14:14:11.945917Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.0016216000076383352}, 'success': {'HelloAgent': 1.0}}}"}
+{"timestamp":"2025-09-10T14:14:11.963612Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 2, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.0009348999592475593}, 'success': {'HelloAgent': 1.0}}}"}
+{"timestamp":"2025-09-10T14:14:12.978147Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'SlowAgent': {'error': 'timeout'}}, 'metrics': {'latency': {}, 'success': {'SlowAgent': 0.0}}}"}
+{"timestamp":"2025-09-10T14:14:13.100585Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:00:47.589003Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:00:47.622707Z","agent":"ConfigEchoAgent","status":"ok","message":null,"data_preview":"{'name': 'from_env', 'description': 'from_env_desc', 'params': {'a': 9, 'b': 10, 'c': 3, 'd': 'ok'}}"}
+{"timestamp":"2025-09-10T15:00:47.690884Z","agent":"HelloAgent","status":"ok","message":"input:hello","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:00:48.946976Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:01:36.115751Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:01:36.149288Z","agent":"ConfigEchoAgent","status":"ok","message":null,"data_preview":"{'name': 'from_env', 'description': 'from_env_desc', 'params': {'a': 9, 'b': 10, 'c': 3, 'd': 'ok'}}"}
+{"timestamp":"2025-09-10T15:01:36.210154Z","agent":"HelloAgent","status":"ok","message":"input:hello","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:01:36.232059Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.001343499985523522}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mast"}
+{"timestamp":"2025-09-10T15:01:36.251395Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 2, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.0017656999989412725}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mas"}
+{"timestamp":"2025-09-10T15:01:37.266666Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'SlowAgent': {'error': 'timeout'}}, 'metrics': {'latency': {}, 'success': {'SlowAgent': 0.0}}, 'transcript': [{'role': 'system', 'agent': 'MasterAgent', 'content': 'MasterAge"}
+{"timestamp":"2025-09-10T15:01:37.380118Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:21:31.367302Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:21:31.402083Z","agent":"ConfigEchoAgent","status":"ok","message":null,"data_preview":"{'name': 'from_env', 'description': 'from_env_desc', 'params': {'a': 9, 'b': 10, 'c': 3, 'd': 'ok'}}"}
+{"timestamp":"2025-09-10T15:21:31.459733Z","agent":"HelloAgent","status":"ok","message":"input:hello","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T15:21:31.481878Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.001381999987643212}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mast"}
+{"timestamp":"2025-09-10T15:21:31.500217Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 2, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.0010180000099353492}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mas"}
+{"timestamp":"2025-09-10T15:21:32.515088Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'SlowAgent': {'error': 'timeout'}}, 'metrics': {'latency': {}, 'success': {'SlowAgent': 0.0}}, 'transcript': [{'role': 'system', 'agent': 'MasterAgent', 'content': 'MasterAge"}
+{"timestamp":"2025-09-10T15:21:32.638711Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.001415100006852299}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mast"}
+{"timestamp":"2025-09-10T15:21:32.655859Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T16:07:01.828885Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T16:07:01.862744Z","agent":"ConfigEchoAgent","status":"ok","message":null,"data_preview":"{'name': 'from_env', 'description': 'from_env_desc', 'params': {'a': 9, 'b': 10, 'c': 3, 'd': 'ok'}}"}
+{"timestamp":"2025-09-10T16:07:01.924134Z","agent":"HelloAgent","status":"ok","message":"input:hello","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T16:07:01.945203Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.0014018999645486474}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mas"}
+{"timestamp":"2025-09-10T16:07:01.967154Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 2, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.0012050000368617475}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mas"}
+{"timestamp":"2025-09-10T16:07:02.989921Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'SlowAgent': {'error': 'timeout'}}, 'metrics': {'latency': {}, 'success': {'SlowAgent': 0.0}}, 'transcript': [{'role': 'system', 'agent': 'MasterAgent', 'content': 'MasterAge"}
+{"timestamp":"2025-09-10T16:07:03.104505Z","agent":"MasterAgent","status":"ok","message":null,"data_preview":"{'rounds': 1, 'results': {'HelloAgent': 'Hello, world!'}, 'metrics': {'latency': {'HelloAgent': 0.0013181999674998224}, 'success': {'HelloAgent': 1.0}}, 'transcript': [{'role': 'system', 'agent': 'Mas"}
+{"timestamp":"2025-09-10T16:07:03.119075Z","agent":"HelloAgent","status":"ok","message":"input:Cześć ftSystem","data_preview":"Hello, world!"}
+{"timestamp":"2025-09-10T16:07:03.125904Z","agent":"HelloAgent","status":"ok","message":null,"data_preview":"Hello, world!"}

@@ -1,0 +1,55 @@
+---
+description: TODO and Memory
+alwaysApply: true
+---
+# TODO and memory orchestration
+
+## Context
+
+The file `D:\projekty AI\ftSystem\.cursor‑tasks.md` is the single source of truth for task planning and memory.
+You create another list of tasks in the file right after I explicitly confirm their content in the chat context window.
+
+## Memory handling
+
+1. Treat tasks with `[x]` as **completed memory** – never propose them again.  
+2. Keep the original wording of memory tasks intact when referencing them.
+
+## Session planning
+
+When the user requests a new work session **or** no unchecked tasks remain:
+
+1. Insert a new section at the **bottom** of the file with the next task session number
+2. Determine `<nextIndex>` = last index + 1.
+
+  ```markdown
+
+  ## Step <nextIndex>
+
+  - [ ] 1. **<Title>** – <brief description>
+  - [ ] 2. **…**
+  - [ ] 3. **…**
+
+  ---
+
+  ```
+
+3. Generate exactly three top‑level tasks; each ≤ 6 words, description ≤ 100 chars.
+4. Optional: nest Markdown subtasks (  - [ ] …) if a step genuinely needs internal checklist.
+
+## Progress tracking
+
+* After finishing a task, immediately:
+  * Change its box to [x].
+  * Commit or explain the code that solved it.
+* Never modify earlier completed sections other than checkbox flips.
+
+## Formatting rules
+
+* Pure Markdown only – no HTML, no code fences in task list.
+* Preserve ordering; do not reorder tasks automatically.
+* Repair malformed checklists or merge conflicts before continuing.
+
+## Safety & limits
+
+* If adding a section would exceed 300 lines, prompt the user to archive old memory.
+* Abort and ask for help if the task file becomes unreadable.
