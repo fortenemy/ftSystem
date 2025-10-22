@@ -63,12 +63,14 @@ Instrukcja obsługi tasków znajduje się w pliku `D:\projekty AI\ftSystem\.curs
 
   ```
 
-Zapisujesz plik logu w katalogu `D:\projekty AI\ftSystem\logs` do pliku o nazwie `log_<numer-logu>_<DD>_<MM>_<YYYY>.md` , gdzie:
+Zapisujesz plik logu w katalogu `D:\projekty AI\ftSystem\logs` do pliku o nazwie `<YYYY>_<MM>_<DD>_log_<numer-logu>.md` , gdzie:
 
 * `nazwa_pliku.md` = nazwa pliku logu
-* **<numer-logu>** = liczba całkowita (poczynając od 1) zwiększająca się o 1, przy każdym utworzeniu nowego pliku logu
+* **`<YYYY>`** - rok (4 cyfry)
+* **`<MM>`** - miesiąc (2 cyfry)
+* **`<DD>`** - dzień (2 cyfry)
+* **`<numer-logu>`** = liczba całkowita (poczynając od 1) zwiększająca się o 1, przy każdym utworzeniu nowego pliku logu
 * numeracja wraca do początkowej wartości równej 1, wraz ze zmianą daty
-* **format daty** - `<DD>` - dzień, `<MM>` - miesiąc, `<YYYY>` – rok.
 * pobierz **tylko i wyłącznie** tytuły i opisy ostatnich trzech zakończonych tasków (odhaczone - [x]) z dołu pliku `D:\projekty AI\ftSystem\.cursor‑tasks.md`.
   Przykład:
 

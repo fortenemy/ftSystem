@@ -24,9 +24,11 @@ class VoskSTT:
     """
 
     def __init__(self, cfg: STTConfig) -> None:
+        """Store configuration used for subsequent recordings."""
         self.cfg = cfg
 
-    def _ensure(self):
+    def _ensure(self) -> None:
+        """Verify that required STT dependencies are available."""
         try:
             import vosk  # type: ignore
         except Exception as e:
@@ -145,6 +147,7 @@ class SapiTTS:
     """
 
     def __init__(self, lang: str = "pl-PL") -> None:
+        """Initialise the engine and pick a best-effort matching voice."""
         self.lang = lang
         try:
             import pyttsx3  # type: ignore
@@ -164,6 +167,7 @@ class SapiTTS:
             pass
 
     def speak(self, text: str) -> None:
+        """Vocalise the supplied text if it is non-empty."""
         if not text:
             return
         self.engine.say(text)

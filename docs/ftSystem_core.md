@@ -55,10 +55,19 @@ ftSystem is an open‑source Python CLI that coordinates a *team* of AI agents�
 * CLI entry in `main.py` with Typer; model clients in `model_clients.py`.
 
 ## 9. Development Guidelines
-1. **Modularity** – separate agents, model clients, CLI, memory.  
-2. **Concurrency** – launch helper tasks with `asyncio.gather`.  
-3. **Testing** – unit & e2e tests; simulate multi‑agent dialogues.  
-4. **Documentation** – keep prompts & configs under version control.
+1. **Modularity** - separate agents, model clients, CLI, memory.  
+2. **Concurrency** - launch helper tasks with `asyncio.gather`.  
+3. **Testing** - unit & e2e tests; simulate multi-agent dialogues.  
+4. **Documentation** - keep prompts & configs under version control.
+
+### 9.1 Docstrings, Typing & Errors
+
+- Docstrings: add concise, single‑sentence summaries (PEP 257) to all public functions/methods; include `Args`, `Returns`, and `Raises` where beneficial.
+- Type hints: prefer precise typing (PEP 484); use `dict[str, Any]`/`list[str]` over bare containers; avoid `Any` unless necessary.
+- Errors: provide actionable context in messages (exception type, path/agent); avoid bare `except`; never include secrets (redaction is enforced in logs).
+- Metrics: optional Prometheus export (`--metrics-path`) must include HELP/TYPE headers and reflect per-subagent latency/success.
+- Profiling: `perf profile` subcommand should stay lightweight and avoid side effects (no history writes beyond standard summaries).
+- I18N: use `core.i18n.I18N` and language keys (`en`, `pl`) when emitting user-facing strings.
 
 ## 10. Dependencies
 * The following Python packages are declared in `requirements.txt`:
@@ -85,5 +94,4 @@ ftSystem is an open‑source Python CLI that coordinates a *team* of AI agents�
 - STT: Vosk (offline), configurable model path; TTS: SAPI5 via pyttsx3 (Windows) or Piper (future option).
 - CLI flags: --voice-in vosk|mock, --voice-out sapi5|mock, --stt-model-dir, --voice-lang, --max-utterance-sec, --mic-index.
 - UX: user triggers /rec, system records a short utterance, recognizes it, runs agents, speaks back (optional), and logs redacted text.---
-**Last updated: 2025-09-10*
-
+**Last updated: 2025-10-22*

@@ -10,11 +10,13 @@ class SecurityPolicy:
     """
 
     def __init__(self, allowed_agents: Optional[Iterable[str]] = None, max_rounds: int = 5) -> None:
+        """Create a policy with optional allow-list and rounds cap."""
         self.allowed = set(a for a in (allowed_agents or [])) or None
         self.max_rounds = max(1, int(max_rounds))
 
     @classmethod
     def from_env(cls) -> "SecurityPolicy":
+        """Instantiate a policy using environment variables for defaults."""
         allowed_env = os.environ.get("FTSYSTEM_ALLOWED_AGENTS")
         allowed = None
         if allowed_env:
@@ -23,11 +25,13 @@ class SecurityPolicy:
         return cls(allowed_agents=allowed, max_rounds=max_rounds)
 
     def filter_subagents(self, names: List[str]) -> List[str]:
+        """Restrict the provided agent list based on the allow-list."""
         if self.allowed is None:
             return names
         return [n for n in names if n in self.allowed]
 
     def cap_rounds(self, rounds: int) -> int:
+        """Clamp the requested rounds to the configured maximum."""
         try:
             r = int(rounds)
         except Exception:
@@ -76,6 +80,7 @@ class Redactor:
 
     @classmethod
     def set_level(cls, level: str) -> None:
+        """Persist the desired redaction level (normal or strict)."""
         val = (level or "").strip().lower()
         if val not in {"normal", "strict"}:
             val = "normal"
@@ -83,10 +88,12 @@ class Redactor:
 
     @classmethod
     def get_level(cls) -> str:
+        """Return the currently active redaction level."""
         return cls._level
 
     @classmethod
     def redact(cls, text: Optional[str]) -> Optional[str]:
+        """Mask sensitive patterns in the provided text."""
         if text is None:
             return None
         out = str(text)

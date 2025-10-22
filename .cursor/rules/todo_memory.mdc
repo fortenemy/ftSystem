@@ -18,7 +18,7 @@ You create another list of tasks in the file right after I explicitly confirm th
 
 When the user requests a new work session **or** no unchecked tasks remain:
 
-1. Insert a new section at the **bottom** of the file with the next task session number
+1. Insert a new section at the **bottom** of the file with the next task session number.
 2. Determine `<nextIndex>` = last index + 1.
 
   ```markdown

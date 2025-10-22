@@ -29,6 +29,8 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
 - New agent generator: `new-agent <Name> [--target-dir src/agents] [--config-out cfg.json] [--force]`
   - Example: `python -m src.main new-agent Report --config-out report_config.json`
 - Config formats: JSON and YAML (`--config file.yaml`)
+- Metrics export: `--metrics-path metrics.prom` writes Prometheus-format metrics for completed runs.
+- Language: global `--lang {en|pl}` switch for CLI prompts/errors.
 
 ### Orchestration
 
@@ -70,7 +72,7 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
   - Save replay to file: `--out replay.txt`
 - Export history: `python -m src.main history export --out export.jsonl [--limit 50]`
 - Clear history: `python -m src.main history clear --yes [--all]`
- - Prune history: `python -m src.main history prune --keep 100 --yes` or remove old files: `--days 7 --yes`
+- Prune history: `python -m src.main history prune --keep 100 --yes` or remove old files: `--days 7 --yes`
 - Find across days: `python -m src.main history find --contains "Hello" --days 7 --json`
   - Pagination: `--offset N`, `--limit N` and `--reverse` (newest-first)
   - JSON result: `{ "total": <int>, "items": [ ... ] }`
@@ -86,7 +88,7 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
 - JSON output: `--json`
 - Profiles: `python -m src.main voice profile --set --voice-lang en-US --mic-index 2 --no-beep` and `--show`
 - Interactive extras: inside interactive, use `/last` (show last agent reply), `/tags`, `/clear` (wipe screen)
- - TTS dry-run (tests/dev): `--dry-run-tts` logs TTS text instead of speaking
+- TTS dry-run (tests/dev): `--dry-run-tts` logs TTS text instead of speaking
 
 ### Security Tools
 
@@ -105,6 +107,23 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
 - Run tests: `python -m pytest -q`
 - Coverage: `pytest -q --cov=src --cov-report=term-missing --cov-fail-under=85`
 
+## Developer Guide
+
+- Docstrings: add concise, PEP 257-style docstrings to all public functions and methods. Start with a one-line summary; document parameters, return types, and raised exceptions where useful.
+- Type hints: use precise typing (PEP 484/PEP 561). Prefer concrete types (`dict[str, Any]`, `list[str]`) over bare `dict`/`list`. Keep `Any` only when unavoidable.
+- Error messages: include exception type and helpful context (file paths, agent name). Avoid bare `except`. Surface validation problems without leaking secrets.
+- Logging: use `logging` (not prints). Add debug-level logs in critical paths. Do not log sensitive content; rely on `Redactor`.
+- Style/tooling: keep ruff/black/mypy passing. Follow existing module structure and naming.
+- Metrics: expose optional Prometheus files via `--metrics-path`; ensure new metrics include HELP and TYPE lines.
+- Profiling: use `python -m src.main perf profile --repeat 5 --json` to benchmark orchestrations with many agents.
+- I18N: CLI supports English/Polish strings via `--lang` global option and `FTSYSTEM_LANG` env override.
+
+## Performance & Metrics
+
+- Profile orchestrations: `python -m src.main perf profile --agent MasterAgent --repeat 5 --json` provides min/max/avg durations and subagent counts.
+- Metrics export: add `--metrics-path metrics.prom` to any `run` execution to emit Prometheus exposition data (duration, per-subagent latency/success).
+- Language: use global `--lang {en|pl}` or env `FTSYSTEM_LANG` to switch CLI messages between English and Polish.
+
 ## Project Structure
 
 - CLI: `src/main.py` (Typer commands)
@@ -116,6 +135,11 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
 ## Design Guide
 
 - Primary (ApplyIntelligently): `docs/ftSystem_core.md`
+- Architecture diagrams: `docs/architecture.md`
+
+## Contributor Guide (Codex)
+
+- Repository guidelines for Codex: [AGENTS.md](AGENTS.md)
 
 ## Voice Setup (Vosk)
 
@@ -128,3 +152,43 @@ ftSystem is an open-source Python CLI that coordinates a team of AI agents, mana
 - Global option: `--redact-level {normal|strict}` (or ENV `FTSYSTEM_REDACT_LEVEL`).
 - Normal masks API keys (e.g., `sk-...`) and emails.
 - Strict additionally masks bearer tokens, AWS keys, IPv4 addresses, and long numeric sequences (e.g., credit cards).
+
+## Code Review Summary
+
+A comprehensive code review was conducted on 2025-10-22 covering functionality, code quality, and security:
+
+### Functionality & Logic ✅
+
+- **CLI & Agent System**: Dynamic agent discovery (`AGENT_REGISTRY`) and registration work correctly. CLI commands (`run`, `list-agents`, `interactive`) handle edge cases and errors appropriately.
+- **Orchestration**: `MasterAgent` implements async orchestration with configurable rounds, timeouts, and sub-agent selection.
+- **Error Handling**: Proper validation for missing agents, config issues, and import errors with clear user feedback.
+
+### Code Quality ✅
+
+- **Tooling**: Pre-commit hooks with `ruff`, `black`, and `mypy` ensure consistent formatting and type safety.
+- **Structure**: Modular design with clear separation (`src/agents/`, `src/core/`, `src/main.py`). Naming conventions follow Python standards (`CamelCase` for classes, `snake_case` for functions/variables).
+- **Readability**: Code is well-commented in English, functions are focused, and minimal duplication exists.
+- **Extensibility**: Abstract `Agent` base class and `AgentConfig` Pydantic model support easy agent creation.
+
+### Security ✅
+
+- **Input Validation**: CLI arguments validated by `Typer`, agent configs by `Pydantic`. Layered config system (env/file/CLI) with proper precedence.
+- **Redaction**: `Redactor` class masks sensitive data (API keys, emails, tokens, IPs, credit cards, Polish IBAN/PESEL/NIP) at two levels (`normal`, `strict`).
+- **Security Policy**: `SecurityPolicy` class implements agent allowlists and round limits via environment variables.
+- **No Hardcoded Secrets**: All sensitive values loaded from environment or config files.
+
+### Recommendations
+
+1. Documentation: add inline docstrings to all public methods for better IDE support. [Done 2025-10-22]
+2. Testing: current coverage is ≥85%. Consider adding more edge case tests for complex orchestration scenarios. [Open]
+3. Type Hints: ensure all new code includes comprehensive type hints. [Done 2025-10-22]
+4. Error Messages: make selected errors more descriptive with context. [Done 2025-10-22]
+5. Logging: consider adding more debug‑level logs in critical paths for troubleshooting. [Open]
+
+### Updates (2025-10-22)
+
+- Added comprehensive docstrings to public APIs across src/agents, src/core, and CLI helpers.
+- Completed type hints for helper utilities and refined function signatures.
+- Improved error messages with exception types and actionable context (invalid config JSON/YAML, env JSON parse errors, serialization failures).
+
+Overall, ftSystem demonstrates solid engineering practices with good security foundations and maintainable architecture.

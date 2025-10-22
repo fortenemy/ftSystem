@@ -8,6 +8,7 @@ if str(src_path) not in sys.path:
 from agents import AGENT_REGISTRY
 import json
 from agents.base import AgentConfig
+from agents.base import Agent
 
 
 def test_master_agent_is_registered_and_runs():
@@ -95,3 +96,41 @@ params:
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data.get("rounds") == 2
     assert list(data.get("results", {}).keys()) == ["HelloAgent"]
+
+
+def test_master_agent_respects_security_policy_allowlist(monkeypatch):
+    monkeypatch.setenv("FTSYSTEM_ALLOWED_AGENTS", "HelloAgent")
+    cls = AGENT_REGISTRY["MasterAgent"]
+    cfg = AgentConfig(
+        name="master",
+        description="policy test",
+        params={"subagents": ["HelloAgent", "ConfigEchoAgent"], "rounds": 1},
+    )
+    res = cls(cfg).run()
+    assert isinstance(res, dict)
+    assert res.get("rounds") == 1
+    assert set(res.get("results", {}).keys()) == {"HelloAgent"}
+
+
+def test_master_agent_handles_subagent_errors(monkeypatch):
+    class BoomAgent(Agent):
+        def __init__(self, config: AgentConfig):
+            super().__init__(config)
+
+        def run(self, **kwargs):
+            raise RuntimeError("simulated failure")
+
+    AGENT_REGISTRY["BoomAgent"] = BoomAgent
+    cls = AGENT_REGISTRY["MasterAgent"]
+    try:
+        cfg = AgentConfig(
+            name="master",
+            description="error handling",
+            params={"subagents": ["BoomAgent"], "rounds": 1},
+        )
+        res = cls(cfg).run()
+    finally:
+        AGENT_REGISTRY.pop("BoomAgent", None)
+    boom_result = res.get("results", {}).get("BoomAgent")
+    assert isinstance(boom_result, dict)
+    assert "RuntimeError" in boom_result.get("error", "")

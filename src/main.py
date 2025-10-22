@@ -1,18 +1,22 @@
-import typer
-import json
-import logging
-import sys
-import os
 import asyncio
 import inspect
+import json
+import logging
+import os
 import re
-from pathlib import Path
+import sys
+import time
 from datetime import datetime, timezone
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
+import typer
 from pydantic import BaseModel
+
 from agents import AGENT_REGISTRY, AGENT_IMPORT_ERRORS  # dynamiczny rejestr agentów
 from agents.base import AgentConfig, SessionSummary
+from core.i18n import I18N, t
+from core.metrics import PrometheusExporter
 from core.security import Redactor
 
 app = typer.Typer(help="ftSystem - Multi-Agent AI CLI")
@@ -22,6 +26,8 @@ voice_app = typer.Typer(help="Voice utilities")
 app.add_typer(voice_app, name="voice")
 security_app = typer.Typer(help="Security utilities")
 app.add_typer(security_app, name="security")
+perf_app = typer.Typer(help="Performance utilities")
+app.add_typer(perf_app, name="perf")
 
 # Global profile setting (dev/prod)
 PROFILE: str = os.environ.get("FTSYSTEM_PROFILE", "dev")
@@ -40,6 +46,12 @@ def _configure(
         None,
         "--redact-level",
         help="Redaction level: strict|normal (default: env FTSYSTEM_REDACT_LEVEL or normal)",
+    ),
+    lang: str = typer.Option(
+        os.environ.get("FTSYSTEM_LANG", "en"),
+        "--lang",
+        help="CLI language (en or pl)",
+        show_default=False,
     ),
 ):
     """Global CLI configuration (logging, etc.)."""
@@ -73,10 +85,12 @@ def _configure(
     if rlevel not in {"normal", "strict"}:
         rlevel = "normal"
     Redactor.set_level(rlevel)
+    I18N.set_language(lang)
+    logging.debug("ftsystem language set to %s", I18N.get_language())
 
 
-def complete_agent(incomplete: str):
-    """Autocomplete for agent names based on the registry."""
+def complete_agent(incomplete: str) -> list[str]:
+    """Return agent names that match the provided prefix (case-insensitive)."""
     text = (incomplete or "").lower()
     return [name for name in AGENT_REGISTRY.keys() if name.lower().startswith(text)]
 
@@ -89,16 +103,24 @@ def run(
     config: Path = typer.Option(None, "--config", help="Path to agent config file (JSON or YAML)"),
     param: list[str] = typer.Option(None, "--param", help="Override config params key=value (repeatable)"),
     output: Path = typer.Option(None, "--output", help="If set, save run() result to JSON at this path"),
+    metrics_path: Optional[Path] = typer.Option(
+        None, "--metrics-path", help="Write Prometheus metrics to this file"
+    ),
     tag: list[str] = typer.Option(None, "--tag", help="Add session tag (repeatable)"),
 ):
     """
     Run selected agent with optional configuration.
     """
+    logging.debug(
+        "[cli] run command invoked (agent=%s, config=%s, params=%s, output=%s, tags=%s)",
+        agent,
+        config,
+        bool(param),
+        output,
+        tag,
+    )
     if agent not in AGENT_REGISTRY:
-        typer.echo(
-            f"Agent '{agent}' not found. Available: {list(AGENT_REGISTRY.keys())}",
-            err=True,
-        )
+        typer.echo(t("agent_not_found", agent=agent, available=list(AGENT_REGISTRY.keys())), err=True)
         raise typer.Exit(code=1)
 
     agent_cls = AGENT_REGISTRY[agent]
@@ -107,14 +129,28 @@ def run(
     try:
         agent_config = _build_agent_config(agent, config, param)
     except Exception as e:
-        typer.echo(f"Error building config: {e}", err=True)
+        typer.echo(
+            f"Failed to build config for '{agent}': {type(e).__name__}: {e}",
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     # Instantiate and run agent
     agent_instance = agent_cls(agent_config)
+    logging.debug(
+        "[cli] instantiated agent %s (config_name=%s, has_params=%s)",
+        agent,
+        getattr(agent_config, "name", None),
+        bool(getattr(agent_config, "params", None)),
+    )
     _set_current_tags(tag)
+    start_t = time.perf_counter()
     result = agent_instance.run()
+    duration = time.perf_counter() - start_t
+    logging.debug("[cli] agent %s completed run (type=%s)", agent, type(result).__name__)
     typer.echo(f"{agent}.run() result: {result}")
+    if metrics_path is not None:
+        PrometheusExporter.write_metrics(metrics_path, agent, duration, result)
     if output is not None:
         try:
             # Support Pydantic models (v2)
@@ -123,11 +159,89 @@ def run(
                 json.dump(to_dump, f, ensure_ascii=False, indent=2)
             typer.echo(f"Saved result JSON to: {output}")
         except TypeError as e:
-            typer.echo(f"Serialization error: {e}", err=True)
+            typer.echo(
+                f"Failed to serialise result for '{agent}' to {output}: {type(e).__name__}: {e}",
+                err=True,
+            )
             raise typer.Exit(code=1)
     _persist_session_summary(agent, status="ok", message=None, data=result)
 
 
+@perf_app.command("profile")
+def perf_profile(
+    agent: str = typer.Option(
+        "MasterAgent", "--agent", help="Agent class name to profile", autocompletion=complete_agent
+    ),
+    subagent: list[str] = typer.Option(
+        None,
+        "--subagent",
+        help="Subagent to include (repeatable, defaults to a sample set for MasterAgent)",
+        autocompletion=complete_agent,
+    ),
+    rounds: int = typer.Option(1, "--rounds", help="Rounds parameter when profiling MasterAgent"),
+    repeat: int = typer.Option(3, "--repeat", help="Number of times to run the agent"),
+    json_out: bool = typer.Option(False, "--json", help="Return results as JSON"),
+):
+    """Profile execution time for the selected agent across multiple runs."""
+    if agent not in AGENT_REGISTRY:
+        typer.echo(t("agent_not_found", agent=agent, available=list(AGENT_REGISTRY.keys())), err=True)
+        raise typer.Exit(code=1)
+    if repeat < 1:
+        raise typer.BadParameter("--repeat must be >= 1")
+    agent_cls = AGENT_REGISTRY[agent]
+
+    chosen_subagents = subagent or []
+    if agent == "MasterAgent" and not chosen_subagents:
+        chosen_subagents = [name for name in AGENT_REGISTRY.keys() if name != "MasterAgent"][:3]
+
+    durations: list[float] = []
+    results: list[Any] = []
+    for idx in range(repeat):
+        params: dict[str, Any] | None = None
+        if agent == "MasterAgent":
+            params = {"subagents": chosen_subagents, "rounds": rounds}
+        elif chosen_subagents:
+            params = {"subagents": chosen_subagents}
+        cfg = AgentConfig(
+            name=f"{agent}-profile",
+            description="Performance profiling run",
+            params=params,
+        )
+        logging.debug(
+            "[perf] run #%s agent=%s params=%s",
+            idx + 1,
+            agent,
+            params,
+        )
+        start = time.perf_counter()
+        res = agent_cls(cfg).run()
+        duration = time.perf_counter() - start
+        durations.append(duration)
+        results.append(res)
+
+    summary = {
+        "agent": agent,
+        "runs": repeat,
+        "durations": durations,
+        "avg_duration": sum(durations) / repeat if durations else 0.0,
+        "min_duration": min(durations) if durations else 0.0,
+        "max_duration": max(durations) if durations else 0.0,
+    }
+    if agent == "MasterAgent":
+        summary["rounds"] = rounds
+        summary["subagents"] = chosen_subagents
+
+    if json_out:
+        typer.echo(json.dumps(summary, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(f"Agent: {agent}")
+        if agent == "MasterAgent":
+            typer.echo(f" Subagents: {chosen_subagents or '[]'}")
+            typer.echo(f" Rounds: {rounds}")
+        typer.echo(f" Runs: {repeat}")
+        typer.echo(f" Avg duration: {summary['avg_duration']:.6f}s")
+        typer.echo(f" Min duration: {summary['min_duration']:.6f}s")
+        typer.echo(f" Max duration: {summary['max_duration']:.6f}s")
 @app.command("list-agents")
 def list_agents(
     verbose: bool = typer.Option(False, "--verbose", help="Show docstring and module path"),
@@ -174,6 +288,7 @@ def list_agents(
 
 
 def _to_snake(name: str) -> str:
+    """Convert a class-style name into snake_case for filenames."""
     name = name.strip()
     name = re.sub(r"\W+", " ", name)
     name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
@@ -225,7 +340,10 @@ class {class_name}(Agent):
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
             typer.echo(f"Wrote config JSON: {config_out}")
         except Exception as e:
-            typer.echo(f"Could not write config: {e}", err=True)
+            typer.echo(
+                f"Failed to write config JSON to {config_out}: {type(e).__name__}: {e}",
+                err=True,
+            )
 
 
 
@@ -234,11 +352,13 @@ class {class_name}(Agent):
 # ---------------------
 
 def _history_dir() -> Path:
+    """Return the directory that stores JSONL history files."""
     base = os.environ.get("FTSYSTEM_HISTORY_DIR")
     return Path(base) if base else Path("logs")
 
 
 def _history_path_for(date: Optional[datetime] = None) -> Path:
+    """Compute the JSONL history path for the given date (defaults to today)."""
     d = (date or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
     p = _history_dir()
     p.mkdir(parents=True, exist_ok=True)
@@ -246,6 +366,7 @@ def _history_path_for(date: Optional[datetime] = None) -> Path:
 
 
 def _persist_session_summary(agent: str, status: str, message: Optional[str], data: object) -> None:
+    """Persist a one-line JSON summary of the latest session run."""
     try:
         preview = None
         if data is not None:
@@ -266,7 +387,13 @@ def _persist_session_summary(agent: str, status: str, message: Optional[str], da
             f.write("\n")
         logging.debug("Saved session summary to %s", path)
     except Exception as e:
-        logging.debug("Could not persist session summary: %s", e)
+        logging.debug(
+            "Could not persist session summary for %s at %s: %s",
+            agent,
+            path if "path" in locals() else _history_path_for(),
+            e,
+            exc_info=e,
+        )
 
 
 @history_app.command("show")
@@ -288,7 +415,12 @@ def history_show(
             raise typer.BadParameter("--date must be in YYYY-MM-DD format")
     path = _history_path_for(dt)
     if not path.exists():
-        typer.echo(f"No history for date: {date or datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
+        typer.echo(
+            t(
+                "no_history",
+                date=date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            )
+        )
         raise typer.Exit(code=0)
     lines = path.read_text(encoding="utf-8").splitlines()
     # newest-first
@@ -322,8 +454,9 @@ def history_show(
 # Config helpers
 # ---------------------
 
-def _deep_merge(a: dict, b: dict) -> dict:
-    out = dict(a)
+def _deep_merge(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge mapping ``b`` into ``a`` without mutating inputs."""
+    out: dict[str, Any] = dict(a)
     for k, v in (b or {}).items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = _deep_merge(out[k], v)
@@ -332,8 +465,9 @@ def _deep_merge(a: dict, b: dict) -> dict:
     return out
 
 
-def _parse_params(params: Optional[list[str]]) -> dict:
-    result: dict = {}
+def _parse_params(params: Optional[list[str]]) -> dict[str, Any]:
+    """Parse CLI ``key=value`` overrides into JSON-compatible types."""
+    result: dict[str, Any] = {}
     if not params:
         return result
     for item in params:
@@ -348,19 +482,38 @@ def _parse_params(params: Optional[list[str]]) -> dict:
 
 
 def _build_agent_config(agent: str, config_path: Optional[Path], cli_params: Optional[list[str]]) -> AgentConfig:
-    data: dict = {}
+    """Assemble an AgentConfig from file, environment, and CLI overrides."""
+    data: dict[str, Any] = {}
+    logging.debug(
+        "[config] building config for agent=%s (config_path=%s, cli_params=%s)",
+        agent,
+        config_path,
+        bool(cli_params),
+    )
     if config_path is not None:
         suffix = config_path.suffix.lower()
-        if suffix in {".yml", ".yaml"}:
-            try:
-                import yaml  # type: ignore
-            except Exception as e:  # pragma: no cover
-                raise RuntimeError(f"YAML not available: {e}")
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-        else:
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+        try:
+            if suffix in {".yml", ".yaml"}:
+                try:
+                    import yaml  # type: ignore
+                except Exception as e:  # pragma: no cover
+                    raise RuntimeError(
+                        f"YAML support is required to load {config_path}: {type(e).__name__}: {e}"
+                    ) from e
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+            else:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+        except FileNotFoundError as e:
+            raise RuntimeError(f"Config file not found: {config_path}") from e
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid JSON in config file {config_path}: {e}") from e
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load config file {config_path}: {type(e).__name__}: {e}"
+            ) from e
+        logging.debug("[config] loaded config file %s (keys=%s)", config_path, list(data.keys()))
     if not data:
         data = {"name": agent, "description": f"Auto config for {agent}"}
     # Env overlays
@@ -374,14 +527,33 @@ def _build_agent_config(agent: str, config_path: Optional[Path], cli_params: Opt
     if params_env:
         try:
             penv = json.loads(params_env)
-            data["params"] = _deep_merge(data.get("params", {}) or {}, penv)
-        except Exception:
-            pass
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Environment variable FTSYSTEM_PARAMS must be valid JSON: {e}") from e
+        existing_params = data.get("params") or {}
+        if existing_params and not isinstance(existing_params, dict):
+            raise RuntimeError(
+                f"Expected 'params' to be a mapping in config for {agent}, got {type(existing_params).__name__}"
+            )
+        data["params"] = _deep_merge(existing_params or {}, penv)
+        logging.debug("[config] merged params from environment (keys=%s)", list((data.get("params") or {}).keys()))
     # CLI overlays
     pcli = _parse_params(cli_params)
     if pcli:
-        data["params"] = _deep_merge(data.get("params", {}) or {}, pcli)
-    return AgentConfig(**data)
+        existing_params_cli = data.get("params") or {}
+        if existing_params_cli and not isinstance(existing_params_cli, dict):
+            raise RuntimeError(
+                f"Expected 'params' to be a mapping before applying CLI overrides for {agent}, "
+                f"got {type(existing_params_cli).__name__}"
+            )
+        data["params"] = _deep_merge(existing_params_cli or {}, pcli)
+        logging.debug("[config] merged params from CLI (keys=%s)", list((data.get("params") or {}).keys()))
+    config_obj = AgentConfig(**data)
+    logging.debug(
+        "[config] final AgentConfig(name=%s, has_params=%s)",
+        config_obj.name,
+        bool(config_obj.params),
+    )
+    return config_obj
 
 
 # ---------------------
@@ -389,17 +561,20 @@ def _build_agent_config(agent: str, config_path: Optional[Path], cli_params: Opt
 # ---------------------
 
 def _config_dir() -> Path:
+    """Directory for auxiliary CLI configuration artifacts."""
     base = os.environ.get("FTSYSTEM_CONFIG_DIR")
     return Path(base) if base else Path("logs") / "config"
 
 
 def _voice_profile_path() -> Path:
+    """Return the file path that stores the persistent voice profile."""
     d = _config_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d / "voice_profile.json"
 
 
-def _load_voice_profile() -> dict:
+def _load_voice_profile() -> dict[str, Any]:
+    """Load the persisted voice profile JSON into a dictionary."""
     p = _voice_profile_path()
     if p.exists():
         try:
@@ -409,7 +584,8 @@ def _load_voice_profile() -> dict:
     return {}
 
 
-def _save_voice_profile(data: dict) -> None:
+def _save_voice_profile(data: dict[str, Any]) -> None:
+    """Write the voice profile dictionary back to disk."""
     p = _voice_profile_path()
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -419,11 +595,13 @@ _TAGS: list[str] = []
 
 
 def _set_current_tags(tags: Optional[list[str]]) -> None:
+    """Store the current tag list for subsequent summary persistence."""
     global _TAGS
     _TAGS = [t for t in (tags or []) if isinstance(t, str) and t.strip()]
 
 
 def _current_tags() -> list[str]:
+    """Return the most recently set tags."""
     return list(_TAGS)
 
 
@@ -637,7 +815,7 @@ def history_clear(
 ):
     """Delete history file(s). Safe by default; requires --yes."""
     if not yes:
-        typer.echo("Refusing to clear without --yes")
+        typer.echo(t("clearing_refused"))
         raise typer.Exit(code=1)
     pdir = _history_dir()
     if all_files:
@@ -676,7 +854,7 @@ def history_prune(
 ):
     """Prune history: keep last N entries or remove files older than N days."""
     if not yes:
-        typer.echo("Refusing to prune without --yes")
+        typer.echo(t("pruning_refused"))
         raise typer.Exit(code=1)
     # Files aging mode
     if days is not None:
@@ -810,7 +988,10 @@ def interactive(
                     config_data = json.load(f)
             agent_config = AgentConfig(**config_data)
         except Exception as e:
-            typer.echo(f"Error loading config: {e}", err=True)
+            typer.echo(
+                f"Failed to load config from {config}: {type(e).__name__}: {e}",
+                err=True,
+            )
             raise typer.Exit(code=1)
     else:
         agent_config = AgentConfig(name=agent, description=f"Interactive config for {agent}")
@@ -868,10 +1049,12 @@ def interactive(
         typer.echo("Voice output enabled.")
     # Prepare session transcript file and helpers
     def _session_dir() -> Path:
+        """Return directory for interactive session transcripts."""
         base = os.environ.get("FTSYSTEM_SESSION_DIR")
         return Path(base) if base else (Path("logs") / "sessions")
 
     def _session_file_path(agent_name: str) -> Path:
+        """Compute a timestamped session transcript path for the agent."""
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
         d = _session_dir()
@@ -879,6 +1062,7 @@ def interactive(
         return d / f"session_{safe}_{stamp}.jsonl"
 
     def _append_session_turn(path: Path, role: str, agent_name: str, text: str) -> None:
+        """Append a serialised turn to the session transcript file."""
         rec = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "role": role,
